@@ -111,9 +111,10 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
 
 * [EasyTierRuntimeCoordinator.kt](app/src/main/java/cc/ptoe/easytier/compose/core/EasyTierRuntimeCoordinator.kt) —
   运行时编排器。`SupervisorJob + Dispatchers.IO` 协程域，`Mutex` 串行化 start/stop，持有
-  `VpnTunTransport` 与 `RootTunTransport`。`start(profile, globalSettings)` 先用
-  `withDeviceHostnameIfBlank` 从 Android 设备名补全 hostname，再经 `ProfileValidator` +
-  `TomlConfigBuilder` 生成 TOML，按 `tunMode` 分派到 VPN / Root 实现；轮询 `collectNetworkInfos` 解析虚拟
+  `VpnTunTransport` 与 `RootTunTransport`。`start(profile, globalSettings)` 是**唯一的启动入口**（ViewModel 的
+  Connect 与 `BootCompletedReceiver` 都走这里）：先在 mutex 之外调用 `autoRefreshBeforeStart`（必要时重新读取
+  URL 来源并落盘，失败静默回退到已存配置），再用 `withDeviceHostnameIfBlank` 从 Android 设备名补全 hostname，
+  经 `ProfileValidator` + `TomlConfigBuilder` 生成 TOML，按 `tunMode` 分派到 VPN / Root 实现；轮询 `collectNetworkInfos` 解析虚拟
   IPv4、`proxy_cidrs` 远端路由、hostname、NAT 类型与 `peer_route_pairs` Peer 列表（VPN\_SERVICE 直接在
   app 进程轮询；ROOT\_TUN 通过 AIDL 收集 `RootTunTransport.status` flow）。
 
@@ -155,12 +156,20 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
   `ProfileLinkSource`（object）+ `ProfileLinkResult`，导入 URL 的统一入口：分享链接走
   `EasyTierWebLink`（无网络）；`http(s)` URL 经 `fetchConfigText` 抓取后交给 `TomlProfileImporter`；
   `udp/tcp/ws/wss/ring` 配置服务器 URL 会返回专门提示（不是可导入的配置）。成功时写入
-  `sourceUrl`。`EasyTierProfile.withImportedConfig` 用于手动刷新：保留 id / 显示名 / `tunMode` /
-  设备级选项（`tunDeviceName`、`startOnBoot`、`mtu`、线程数、bps、`socketMark`）与 `sourceUrl`。
+  `sourceUrl` 与 `sourceSyncedAt`（可注入 `now`，便于测试）。`EasyTierProfile.withImportedConfig` 用于刷新：
+  保留 id / 显示名 / `tunMode` / 设备级选项（`tunDeviceName`、`startOnBoot`、`mtu`、线程数、bps、
+  `socketMark`）、`sourceUrl` 与 `autoRefresh`；`sourceSyncedAt` 取自新读取的配置（记录读取时刻）。
+
+* [ProfileAutoRefresh.kt](app/src/main/java/cc/ptoe/easytier/compose/core/ProfileAutoRefresh.kt) —
+  纯策略 + 纯函数：`shouldAutoRefresh(profile, nowMillis, intervalMillis = 30 min)` 判断「有 `sourceUrl`、
+  `autoRefresh` 开启且（从未同步或 `sourceSyncedAt` 超过 30 分钟）」；`autoRefreshProfile(profile, now,
+  load, validate)` 调用 `ProfileLinkSource.load`，成功则 `withImportedConfig` + 写入 `sourceSyncedAt` 并交给
+  启动同款校验，任何失败（离线/超时/HTTP/解析/config-server/校验失败）返回 `Failure(host, reason)`，
+  **绝不修改**传入的 profile。日志只记录 host，不写带查询串的完整 URL。
 
 * [ConfigTextReader.kt](app/src/main/java/cc/ptoe/easytier/compose/core/ConfigTextReader.kt) —
   `ConfigText` + `readLimitedConfigText` / `fetchConfigText`：1 MB 上限、BOM（UTF-8/UTF-16）解码、
-  `HttpURLConnection`（10 s 连接/读取超时，仅 http/https）。文件导入与 URL 导入共用。
+  `HttpURLConnection`（默认 10 s，自动刷新传 5 s 连接/读取超时；仅 http/https）。文件导入与 URL 导入共用。
 
 * [NetworkInfo.kt](app/src/main/java/cc/ptoe/easytier/compose/core/NetworkInfo.kt) —
   `collectNetworkInfos` 返回 JSON 的解析逻辑（从原 `EasyTierRuntimeCoordinator.kt` 抽出）：
@@ -174,7 +183,8 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
 * [EasyTierModels.kt](app/src/main/java/cc/ptoe/easytier/compose/data/EasyTierModels.kt) —
   `EasyTierProfile`（`@Serializable`，含 \~50 个字段：基础、peers、listeners、proxy networks、port
   forwards、VPN portal、secure mode、STUN/whitelists、KCP/QUIC proxy flags、bps 限制等；`sourceUrl`
-  记录导入来源、仅用于手动刷新）、`GlobalSettings`（
+  记录导入来源，`sourceSyncedAt` 记录上次成功同步时刻，`autoRefresh`（默认 true）控制连接前是否自动重读）、
+  `GlobalSettings`（
   `tunDeviceName` / `noTun` / `startOnBoot` / `mtu` / `multiThread` / `multiThreadCount` / bps 限制）、
   `TunMode` / `CompressionAlgo` / `EncryptionAlgorithm` 枚举、`Peer` / `ProxyNetwork` /
   `PortForward` / `VpnPortal` / `SecureMode` 子结构、`RuntimePeer`（含 `connectionType` /
@@ -288,8 +298,8 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
     按分区组织全部配置（General / Network & Peers / Routing / IPv6 Public Address / Port Forwards /
     VPN Portal (WireGuard) / Secure Mode / STUN & Whitelists / Flags — General / Flags — P2P /
     Flags — KCP Proxy / Flags — QUIC Proxy）。若 profile 带 `sourceUrl`，顶部额外显示「Imported from link」
-    分区：展示来源 URL 与 **Refresh from link** 按钮（仅用户点击时重新读取；运行中禁用，刷新结果先进入草稿，
-    保存时才落盘）。
+    分区：展示来源 URL、**Refresh from link** 按钮（运行中禁用；刷新结果先进入草稿，保存时才落盘）、
+    **Auto-refresh on connect** 开关与只读的「Last synced」本地化时间（`DateUtils.formatDateTime`）。
 
   * [SettingsScreen.kt](app/src/main/java/cc/ptoe/easytier/compose/ui/screens/SettingsScreen.kt) —
     TUN 模式切换、**Global overrides**（TUN 设备名 / `no_tun` / Start on boot）、通知授权与 Reset。
@@ -384,8 +394,11 @@ VpnService/其他代理的 TUN 劫持；VPN\_SERVICE 侧的 No TUN 仍在 app �
 
 * **不自动连接**：`MainActivity.onResume()` 有意留空，连接必须由用户显式触发。
 
-* **配置来源 URL 只在用户操作时读取**：`ProfileLinkSource` 仅在「Import from link」/「Refresh from link」
-  被点击时运行；启动、轮询与后台都不会自动请求。分享链接在本地解码，不触网。
+* **配置来源 URL 只在导入、手动刷新与「连接前」读取**：`ProfileLinkSource` 由「Import from link」/
+  「Refresh from link」以及 `EasyTierRuntimeCoordinator.start` 里的 `autoRefreshBeforeStart` 调用。
+  自动刷新仅发生在用户/开机显式启动某个 profile 时（无 WorkManager、无定时器、无后台轮询、不在应用启动时抓取），
+  且仅当 profile 有 `sourceUrl`、`autoRefresh` 开启、距上次成功同步 ≥30 分钟。分享链接在本地解码，不触网；
+  `udp/tcp/ws/wss/ring` config-server URL 视为刷新失败。**应用仍然绝不自动连接。**
 
 * **Web 控制台 config-server 模式未实现**：EasyTier-Core 的 JNI 提供 `startConfigServerClient` /
   `stopConfigServerClient` / `isConfigServerClientConnected`（prebuilt `.so` 中已导出），但该模式由服务器
@@ -425,8 +438,13 @@ VpnService/其他代理的 TUN 劫持；VPN\_SERVICE 侧的 No TUN 仍在 app �
   `no_tun`、字段校验（IPv4/IPv6 CIDR、MTU、peers、proxy networks、port forwards、VPN
   portal、multiThreadCount、bps 限制）。测试通过注入 `NativeConfigParser` 桩绕过真实 JNI。
 
-* 修改 `ProfileValidator.kt` / `TomlConfigBuilder.kt` / `NativeConfigParser.kt` / `NetworkInfo.kt` 或
-  `EasyTierModels.kt` 后应运行 `./gradlew :app:testDebugUnitTest`。
+* [ProfileAutoRefreshTest.kt](app/src/test/java/cc/ptoe/easytier/compose/ProfileAutoRefreshTest.kt)
+  覆盖：30 分钟策略（从未同步 / 29:59 / 30:00 / 自定义间隔与注入时钟 / `autoRefresh=false` / 无
+  `sourceUrl`）、失败（离线异常、config-server URL、校验失败）不改变已存 profile、成功时应用新配置并保留
+  设备级选项与 `sourceSyncedAt`、旧版 JSON（无新字段）仍能反序列化且默认 `autoRefresh=true`。
+
+* 修改 `ProfileValidator.kt` / `TomlConfigBuilder.kt` / `NativeConfigParser.kt` / `NetworkInfo.kt` /
+  `ProfileAutoRefresh.kt` 或 `EasyTierModels.kt` 后应运行 `./gradlew :app:testDebugUnitTest`。
 
 * instrumented 测试（`ExampleInstrumentedTest`）为占位。
 
