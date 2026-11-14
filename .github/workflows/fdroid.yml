@@ -55,7 +55,10 @@ jobs:
           tag="${INPUT_TAG:-$RUN_TAG}"
           draft=false
           if [ "$EVENT" != "workflow_dispatch" ] && [ -n "$tag" ]; then
-            draft="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2> /dev/null || echo false)"
+            # `gh release view <tag>` cannot see drafts (a draft has no public tag page); list releases instead.
+            draft="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+              --jq ".[] | select(.tag_name == \"$tag\") | .draft" | head -n 1)"
+            draft="${draft:-false}"
           fi
           if [ "$draft" = "true" ]; then
             echo "::notice::Release $tag is a draft: not publishing to F-Droid. Publish the release, then run this workflow manually."
