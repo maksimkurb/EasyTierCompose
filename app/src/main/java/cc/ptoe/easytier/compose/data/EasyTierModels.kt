@@ -278,10 +278,20 @@ data class EasyTierProfile(
     val credentialFile: String? = null,
     /**
      * URL the profile was imported from (TOML over HTTP(S) or an EasyTier
-     * share link). Only used by the manual "Refresh from link" action in the
-     * editor; the app never refreshes it automatically.
+     * share link). Re-read by the manual "Refresh from link" action and, when
+     * [autoRefresh] is on and the copy is stale, right before connecting.
      */
     val sourceUrl: String? = null,
+    /**
+     * Epoch millis of the last successful import/refresh from [sourceUrl].
+     * Null means the profile was never synced from its source.
+     */
+    val sourceSyncedAt: Long? = null,
+    /**
+     * Whether [sourceUrl] is re-read automatically before connect once
+     * [sourceSyncedAt] is older than 30 minutes. Device-local setting.
+     */
+    val autoRefresh: Boolean = true,
 )
 
 /**
