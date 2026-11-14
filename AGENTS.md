@@ -114,8 +114,8 @@ Verified against `EasyTier-Core` @ `81487c3`:
   reports runtime state (virtual IP, routes, peers). `api.manage.WebClientService` is explicitly blocked from the
   JNI bridge.
 * The managed instance uses the same `NativeInstanceFactory` as locally started instances, so `setTunFd(instance_name,
-  fd)` attaches a `VpnService`/`RootTun` fd to it like any other instance. The mobile TUN host waits for the fd on a
-  channel, so attaching after the server's `run_network_instance` event is the intended order.
+  fd)` attaches a `VpnService` fd to it like any other instance. The mobile TUN host waits for the fd on a channel,
+  so attaching after the server's `run_network_instance` event is the intended order.
 
 ### What the app adds (and nothing more)
 
