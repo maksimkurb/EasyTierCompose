@@ -140,7 +140,7 @@ git submodule update --init --recursive
 `./gradlew :app:buildRustJniLibs` собирает только нативные библиотеки.
 
 Подпись релиза: скопируйте `keystore.properties.example` в `keystore.properties` (исключён из git) или задайте
-`KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Без ключей release-вариант подписывается отладочным ключом.
+`KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Без ключей release-APK остаются неподписанными.
 
 Публикация (CI, ключи подписи, репозиторий F-Droid): [docs/RELEASING.ru.md](docs/RELEASING.ru.md).
 

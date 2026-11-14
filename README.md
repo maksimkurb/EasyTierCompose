@@ -138,7 +138,7 @@ the NDK or the patch list change.
 `./gradlew :app:buildRustJniLibs` builds only the native libraries.
 
 Release signing: copy `keystore.properties.example` to `keystore.properties` (git-ignored) or set
-`KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Without credentials the release variant is signed with the debug key.
+`KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Without credentials the release APKs are left unsigned.
 
 Publishing (CI, signing keys, F-Droid repository): [docs/RELEASING.md](docs/RELEASING.md).
 

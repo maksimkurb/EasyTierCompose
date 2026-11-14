@@ -1,0 +1,13 @@
+Categories:
+  - Connectivity
+License: GPL-3.0-only
+AuthorName: EasyTier Compose Contributors
+WebSite: https://github.com/maksimkurb/EasyTierCompose
+SourceCode: https://github.com/maksimkurb/EasyTierCompose
+IssueTracker: https://github.com/maksimkurb/EasyTierCompose/issues
+Changelog: https://github.com/maksimkurb/EasyTierCompose/releases
+Name: EasyTier
+Summary: Client for the EasyTier decentralized mesh VPN
+Description: |-
+  EasyTier Compose is an Android client for EasyTier, a decentralized mesh VPN
+  written in Rust. Localized descriptions live in the per-language directories.
