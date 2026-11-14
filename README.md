@@ -167,8 +167,9 @@ Publishing (CI, signing keys, F-Droid repository): [docs/RELEASING.md](docs/RELE
   protocol messages to that server: the endpoint's user token, a random per-install machine ID, the device
   hostname (the profile's hostname, auto-filled from the Android device name when blank), the app/core version,
   the device OS description and the IDs of the network instances it runs. The server answers with the network
-  configurations, which are applied by the core. Nothing else is contacted, there is no sync in the background
-  while the profile is stopped, and the app has no server-side account handling of its own.
+  configurations, which are applied by the core. Beyond that, the config-server client contacts nothing else:
+  there is no sync in the background while the profile is stopped, and the app has no server-side account
+  handling of its own. (Traffic to the network's peers and to STUN servers is described below.)
 - The last configuration received from a config server is cached in the app's private storage and replayed
   locally when the server is unreachable. Like any profile it may contain network secrets; it is never logged,
   and only the server host (never the token or the configuration body) is written to the app log.
