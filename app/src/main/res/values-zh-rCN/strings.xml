@@ -438,4 +438,49 @@
     <string name="vpn_notification_title">EasyTier VPN 已启用</string>
     <string name="vpn_notification_text">EasyTier 正通过 Android VPN 转发流量</string>
     <string name="vpn_notification_channel">EasyTier VPN</string>
+
+    <!-- 配置服务器（Web 托管）配置 -->
+    <string name="profiles_add_config_server">连接配置服务器</string>
+    <string name="profiles_config_server_hint">EasyTier-web 配置服务器负责下发此网络的配置。服务器不可达时，使用上一次接收的配置。</string>
+    <string name="profiles_config_server_url_label">配置服务器 URL</string>
+    <string name="profiles_config_server_url_example">udp://host:22020/user</string>
+    <string name="profiles_config_server_continue">继续</string>
+    <string name="profiles_web_summary">配置服务器 &#8226; %1$s</string>
+    <string name="profiles_web_summary_synced">%1$s &#8226; 配置服务器 %2$s</string>
+    <string name="editor_config_server">配置服务器</string>
+    <string name="editor_config_server_url">配置服务器 URL</string>
+    <string name="editor_config_server_hint">EasyTier 内核连接此服务器并应用其下发的网络配置。收到的配置会缓存在本机，服务器不可达时使用。</string>
+    <string name="editor_config_server_sync">立即同步</string>
+    <string name="editor_config_server_syncing">正在同步…</string>
+    <string name="editor_config_server_last_sync">上次同步：%1$s</string>
+    <string name="editor_config_server_never_synced">上次同步：从未</string>
+    <string name="editor_config_server_cached_network">已缓存网络：%1$s</string>
+    <string name="editor_config_server_cached_ip">已缓存虚拟 IP：%1$s</string>
+    <string name="editor_config_server_cached_dhcp">虚拟 IP：DHCP</string>
+    <string name="editor_config_server_no_cache">尚未收到配置。</string>
+    <string name="dashboard_config_server">配置服务器</string>
+    <string name="dashboard_web_server">服务器</string>
+    <string name="dashboard_web_configuration">配置</string>
+    <string name="dashboard_web_last_sync">上次同步</string>
+    <string name="web_server_connected">已连接</string>
+    <string name="web_server_connecting">正在连接…</string>
+    <string name="web_server_disconnected">已断开（正在重试）</string>
+    <string name="web_origin_live">来自服务器</string>
+    <string name="web_origin_cached">来自缓存</string>
+    <string name="web_cached_notice">配置服务器不可达 — 正在使用 %1$s 缓存的配置。</string>
+    <string name="web_cached_notice_unknown">配置服务器不可达 — 正在使用已缓存的配置。</string>
+    <plurals name="web_extra_networks">
+        <item quantity="other">服务器下发的另外 %1$d 个网络未在此设备上隧道传输</item>
+    </plurals>
+    <string name="error_config_server_url_required">请输入配置服务器 URL</string>
+    <string name="error_config_server_url_invalid">配置服务器 URL 无效</string>
+    <string name="error_config_server_url_scheme">支持的协议为 tcp、udp、ws、wss 和 ring</string>
+    <string name="error_config_server_url_token">URL 需要包含用户令牌，例如 udp://host:22020/user</string>
+    <string name="error_web_managed_root_unsupported">配置服务器配置不支持 Root 模式</string>
+    <string name="error_web_no_cache">配置服务器不可达，且没有已缓存的配置</string>
+    <string name="error_web_cached_invalid">已缓存的服务器配置已损坏</string>
+    <string name="error_web_start_failed">无法启动配置服务器客户端</string>
+    <string name="error_web_sync_while_running">请先断开连接再同步配置</string>
+    <string name="error_web_sync_unreachable">配置服务器未响应</string>
+    <string name="error_web_network_removed">配置服务器已删除此网络</string>
     </resources>

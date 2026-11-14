@@ -7,6 +7,8 @@ import cc.ptoe.easytier.compose.data.Acl
 import cc.ptoe.easytier.compose.data.EasyTierProfile
 import cc.ptoe.easytier.compose.data.GlobalSettings
 import cc.ptoe.easytier.compose.data.ManagedCredential
+import cc.ptoe.easytier.compose.data.TunMode
+import cc.ptoe.easytier.compose.data.isWebManaged
 import cc.ptoe.easytier.compose.data.mergeInto
 import java.net.InetAddress
 
@@ -29,65 +31,87 @@ class ProfileValidator(private val nativeParser: NativeConfigParser = EasyTierNa
         // Global overrides merge on top of the profile; validation runs on the
         // effective configuration that would actually be built.
         val effective = globalSettings.mergeInto(profile)
-        if (effective.name.isBlank()) put("name", ValidationMessage.Resource(R.string.error_profile_name_required))
-        if (effective.networkName.isBlank()) put("networkName", ValidationMessage.Resource(R.string.error_network_name_required))
-        if (effective.tldDnsZone.isBlank()) put("tldDnsZone", ValidationMessage.Resource(R.string.error_tld_dns_zone_required))
-        if (!effective.dhcp && !effective.virtualIpv4.isValidIpv4Cidr()) {
-            put("virtualIpv4", ValidationMessage.Resource(R.string.error_ipv4_cidr_required_dhcp_off))
-        }
-        effective.virtualIpv6?.takeIf { it.isNotBlank() }?.let {
-            if (!it.isValidIpv6Cidr()) put("virtualIpv6", ValidationMessage.Resource(R.string.error_invalid_ipv6_cidr))
-        }
-        effective.ipv6PublicAddrPrefix?.takeIf { it.isNotBlank() }?.let {
-            if (!it.isValidIpv6Cidr()) put("ipv6PublicAddrPrefix", ValidationMessage.Resource(R.string.error_invalid_ipv6_cidr))
-        }
-        validateStringList("listeners", effective.listeners) { it.isValidListenerUrl() }
-        validateStringList("mappedListeners", effective.mappedListeners) { it.isValidListenerUrl() }
-        validateStringList("manualRoutes", effective.manualRoutes) { it.isValidIpv4Cidr() }
-        validateStringList("exitNodes", effective.exitNodes) { it.isValidIp() }
-        validateStringList("stunServers", effective.stunServers)
-        validateStringList("tcpStunServers", effective.tcpStunServers)
-        validateStringList("stunServersV6", effective.stunServersV6)
-        validateStringList("tcpWhitelist", effective.tcpWhitelist)
-        validateStringList("udpWhitelist", effective.udpWhitelist)
-        validatePeers(effective)
-        validateProxyNetworks(effective)
-        validatePortForwards(effective)
-        effective.vpnPortal?.let { portal ->
-            if (!portal.wireguardListen.isValidSocketAddr()) put("vpnPortal", ValidationMessage.Resource(R.string.error_invalid_wireguard_listen))
-            val clientNames = mutableSetOf<String>()
-            val clientIps = mutableSetOf<String>()
-            portal.clients.forEach { client ->
-                val name = client.name.trim()
-                when {
-                    name.isEmpty() -> put(
-                        "vpnPortal",
-                        ValidationMessage.Resource(R.string.error_portal_client_name_required)
+        if (effective.isWebManaged) {
+            // The network configuration comes from the config server; only the
+            // endpoint and the device-side settings are validated locally.
+            if (effective.name.isBlank()) put("name", ValidationMessage.Resource(R.string.error_profile_name_required))
+            configServerUrlProblem(effective.configServerUrl)?.let { problem ->
+                put("configServerUrl", ValidationMessage.Resource(configServerUrlMessage(problem)))
+            }
+            if (effective.tunMode == TunMode.ROOT_TUN) {
+                put("tunMode", ValidationMessage.Resource(R.string.error_web_managed_root_unsupported))
+            }
+            effective.cachedToml?.takeIf { it.isNotBlank() }?.let { cached ->
+                when (TomlProfileImporter.import(cached)) {
+                    is TomlImportResult.Failure -> put(
+                        "cachedConfig",
+                        ValidationMessage.Resource(R.string.error_web_cached_invalid),
                     )
 
-                    !clientNames.add(name) -> put(
-                        "vpnPortal",
-                        ValidationMessage.Resource(R.string.error_portal_client_duplicate_name)
-                    )
-                }
-                val ip = client.virtualIp.trim()
-                when {
-                    !ip.isValidIpv4Host() -> put(
-                        "vpnPortal",
-                        ValidationMessage.Resource(R.string.error_portal_client_invalid_ip)
-                    )
-
-                    !clientIps.add(ip) -> put(
-                        "vpnPortal",
-                        ValidationMessage.Resource(R.string.error_portal_client_duplicate_ip)
-                    )
+                    is TomlImportResult.Success -> nativeParser.parse(cached)?.let { put("cachedConfig", it) }
                 }
             }
-        }
-        validateAcl(effective.acl)
-        validateManagedCredentials(effective.managedCredentials)
-        effective.socks5Proxy?.takeIf { it.isNotBlank() }?.let {
-            if (!it.isValidSocks5Proxy()) put("socks5Proxy", ValidationMessage.Resource(R.string.error_invalid_socks5_proxy))
+        } else {
+            if (effective.name.isBlank()) put("name", ValidationMessage.Resource(R.string.error_profile_name_required))
+            if (effective.networkName.isBlank()) put("networkName", ValidationMessage.Resource(R.string.error_network_name_required))
+            if (effective.tldDnsZone.isBlank()) put("tldDnsZone", ValidationMessage.Resource(R.string.error_tld_dns_zone_required))
+            if (!effective.dhcp && !effective.virtualIpv4.isValidIpv4Cidr()) {
+                put("virtualIpv4", ValidationMessage.Resource(R.string.error_ipv4_cidr_required_dhcp_off))
+            }
+            effective.virtualIpv6?.takeIf { it.isNotBlank() }?.let {
+                if (!it.isValidIpv6Cidr()) put("virtualIpv6", ValidationMessage.Resource(R.string.error_invalid_ipv6_cidr))
+            }
+            effective.ipv6PublicAddrPrefix?.takeIf { it.isNotBlank() }?.let {
+                if (!it.isValidIpv6Cidr()) put("ipv6PublicAddrPrefix", ValidationMessage.Resource(R.string.error_invalid_ipv6_cidr))
+            }
+            validateStringList("listeners", effective.listeners) { it.isValidListenerUrl() }
+            validateStringList("mappedListeners", effective.mappedListeners) { it.isValidListenerUrl() }
+            validateStringList("manualRoutes", effective.manualRoutes) { it.isValidIpv4Cidr() }
+            validateStringList("exitNodes", effective.exitNodes) { it.isValidIp() }
+            validateStringList("stunServers", effective.stunServers)
+            validateStringList("tcpStunServers", effective.tcpStunServers)
+            validateStringList("stunServersV6", effective.stunServersV6)
+            validateStringList("tcpWhitelist", effective.tcpWhitelist)
+            validateStringList("udpWhitelist", effective.udpWhitelist)
+            validatePeers(effective)
+            validateProxyNetworks(effective)
+            validatePortForwards(effective)
+            effective.vpnPortal?.let { portal ->
+                if (!portal.wireguardListen.isValidSocketAddr()) put("vpnPortal", ValidationMessage.Resource(R.string.error_invalid_wireguard_listen))
+                val clientNames = mutableSetOf<String>()
+                val clientIps = mutableSetOf<String>()
+                portal.clients.forEach { client ->
+                    val name = client.name.trim()
+                    when {
+                        name.isEmpty() -> put(
+                            "vpnPortal",
+                            ValidationMessage.Resource(R.string.error_portal_client_name_required)
+                        )
+
+                        !clientNames.add(name) -> put(
+                            "vpnPortal",
+                            ValidationMessage.Resource(R.string.error_portal_client_duplicate_name)
+                        )
+                    }
+                    val ip = client.virtualIp.trim()
+                    when {
+                        !ip.isValidIpv4Host() -> put(
+                            "vpnPortal",
+                            ValidationMessage.Resource(R.string.error_portal_client_invalid_ip)
+                        )
+
+                        !clientIps.add(ip) -> put(
+                            "vpnPortal",
+                            ValidationMessage.Resource(R.string.error_portal_client_duplicate_ip)
+                        )
+                    }
+                }
+            }
+            validateAcl(effective.acl)
+            validateManagedCredentials(effective.managedCredentials)
+            effective.socks5Proxy?.takeIf { it.isNotBlank() }?.let {
+                if (!it.isValidSocks5Proxy()) put("socks5Proxy", ValidationMessage.Resource(R.string.error_invalid_socks5_proxy))
+            }
         }
         // Device-local (engine) values of the effective profile.
         if (effective.mtu !in 576..9000) put("mtu", ValidationMessage.Resource(R.string.error_mtu_range))
@@ -109,9 +133,13 @@ class ProfileValidator(private val nativeParser: NativeConfigParser = EasyTierNa
         globalSettings.socks5Proxy?.takeIf { it.isNotBlank() }?.let {
             if (!it.isValidSocks5Proxy()) put("globalSocks5Proxy", ValidationMessage.Resource(R.string.error_invalid_socks5_proxy))
         }
-        // Final native validation of the generated TOML.
-        val toml = TomlConfigBuilder.build(profile, globalSettings)
-        nativeParser.parse(toml)?.let { put("form", it) }
+        // Final native validation of the generated TOML. Web-managed profiles
+        // have no local network configuration to build; their cached config was
+        // validated above.
+        if (!effective.isWebManaged) {
+            val toml = TomlConfigBuilder.build(profile, globalSettings)
+            nativeParser.parse(toml)?.let { put("form", it) }
+        }
     }
 
     private fun MutableMap<String, ValidationMessage>.validateStringList(

@@ -475,4 +475,52 @@
     <string name="vpn_notification_text">EasyTier направляет трафик через Android VPN</string>
     <string name="vpn_notification_channel">EasyTier VPN</string>
     <string name="error_vpn_establish_failed">Не удалось установить VPN-соединение EasyTier</string>
+
+    <!-- Профили сервера конфигурации (web-managed) -->
+    <string name="profiles_add_config_server">Подключиться к серверу конфигурации</string>
+    <string name="profiles_config_server_hint">Сервер конфигурации EasyTier-web передаёт конфигурацию этой сети. Если он недоступен, используется последняя полученная конфигурация.</string>
+    <string name="profiles_config_server_url_label">URL сервера конфигурации</string>
+    <string name="profiles_config_server_url_example">udp://host:22020/пользователь</string>
+    <string name="profiles_config_server_continue">Далее</string>
+    <string name="profiles_web_summary">Сервер конфигурации &#8226; %1$s</string>
+    <string name="profiles_web_summary_synced">%1$s &#8226; сервер %2$s</string>
+    <string name="editor_config_server">Сервер конфигурации</string>
+    <string name="editor_config_server_url">URL сервера конфигурации</string>
+    <string name="editor_config_server_hint">Ядро EasyTier подключается к серверу и применяет передаваемую им конфигурацию сети. Полученная конфигурация сохраняется на устройстве и используется, когда сервер недоступен.</string>
+    <string name="editor_config_server_sync">Синхронизировать</string>
+    <string name="editor_config_server_syncing">Синхронизация…</string>
+    <string name="editor_config_server_last_sync">Последняя синхронизация: %1$s</string>
+    <string name="editor_config_server_never_synced">Последняя синхронизация: никогда</string>
+    <string name="editor_config_server_cached_network">Сохранённая сеть: %1$s</string>
+    <string name="editor_config_server_cached_ip">Сохранённый виртуальный IP: %1$s</string>
+    <string name="editor_config_server_cached_dhcp">Виртуальный IP: DHCP</string>
+    <string name="editor_config_server_no_cache">Конфигурация ещё не получена.</string>
+    <string name="dashboard_config_server">Сервер конфигурации</string>
+    <string name="dashboard_web_server">Сервер</string>
+    <string name="dashboard_web_configuration">Конфигурация</string>
+    <string name="dashboard_web_last_sync">Последняя синхронизация</string>
+    <string name="web_server_connected">Подключён</string>
+    <string name="web_server_connecting">Подключение…</string>
+    <string name="web_server_disconnected">Отключён (повтор подключения)</string>
+    <string name="web_origin_live">С сервера</string>
+    <string name="web_origin_cached">Из кэша</string>
+    <string name="web_cached_notice">Сервер конфигурации недоступен — используется сохранённая конфигурация от %1$s.</string>
+    <string name="web_cached_notice_unknown">Сервер конфигурации недоступен — используется сохранённая конфигурация.</string>
+    <plurals name="web_extra_networks">
+        <item quantity="one">Ещё %1$d сеть с сервера не туннелируется на этом устройстве</item>
+        <item quantity="few">Ещё %1$d сети с сервера не туннелируются на этом устройстве</item>
+        <item quantity="many">Ещё %1$d сетей с сервера не туннелируются на этом устройстве</item>
+        <item quantity="other">Ещё %1$d сети с сервера не туннелируются на этом устройстве</item>
+    </plurals>
+    <string name="error_config_server_url_required">Укажите URL сервера конфигурации</string>
+    <string name="error_config_server_url_invalid">Некорректный URL сервера конфигурации</string>
+    <string name="error_config_server_url_scheme">Поддерживаются схемы tcp, udp, ws, wss и ring</string>
+    <string name="error_config_server_url_token">В URL нужен токен пользователя, например udp://host:22020/user</string>
+    <string name="error_web_managed_root_unsupported">Режим Root не поддерживается для профилей сервера конфигурации</string>
+    <string name="error_web_no_cache">Сервер конфигурации недоступен, а сохранённой конфигурации нет</string>
+    <string name="error_web_cached_invalid">Сохранённая конфигурация с сервера повреждена</string>
+    <string name="error_web_start_failed">Не удалось запустить клиент сервера конфигурации</string>
+    <string name="error_web_sync_while_running">Сначала отключитесь, чтобы синхронизировать конфигурацию</string>
+    <string name="error_web_sync_unreachable">Сервер конфигурации не ответил</string>
+    <string name="error_web_network_removed">Сервер конфигурации удалил эту сеть</string>
 </resources>

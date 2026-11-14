@@ -449,4 +449,50 @@
     <string name="vpn_notification_channel">EasyTier VPN</string>
     <string name="fgs_special_use_subtype" translatable="false">EasyTier virtual network transport</string>
     <string name="error_vpn_establish_failed">Failed to establish EasyTier VPN</string>
+
+    <!-- Config-server (web-managed) profiles -->
+    <string name="profiles_add_config_server">Connect to config server</string>
+    <string name="profiles_config_server_hint">An EasyTier-web config server delivers this network\'s configuration. If it is unreachable, the last received configuration is used.</string>
+    <string name="profiles_config_server_url_label">Config server URL</string>
+    <string name="profiles_config_server_url_example">udp://host:22020/user</string>
+    <string name="profiles_config_server_continue">Continue</string>
+    <string name="profiles_web_summary">Config server &#8226; %1$s</string>
+    <string name="profiles_web_summary_synced">%1$s &#8226; config server %2$s</string>
+    <string name="editor_config_server">Config server</string>
+    <string name="editor_config_server_url">Config server URL</string>
+    <string name="editor_config_server_hint">The EasyTier core connects to this server and applies the network configuration it delivers. The received configuration is cached on this device and used when the server is unreachable.</string>
+    <string name="editor_config_server_sync">Sync now</string>
+    <string name="editor_config_server_syncing">Syncing…</string>
+    <string name="editor_config_server_last_sync">Last synchronized: %1$s</string>
+    <string name="editor_config_server_never_synced">Last synchronized: never</string>
+    <string name="editor_config_server_cached_network">Cached network: %1$s</string>
+    <string name="editor_config_server_cached_ip">Cached virtual IP: %1$s</string>
+    <string name="editor_config_server_cached_dhcp">Virtual IP: DHCP</string>
+    <string name="editor_config_server_no_cache">No configuration received yet.</string>
+    <string name="dashboard_config_server">Config server</string>
+    <string name="dashboard_web_server">Server</string>
+    <string name="dashboard_web_configuration">Configuration</string>
+    <string name="dashboard_web_last_sync">Last sync</string>
+    <string name="web_server_connected">Connected</string>
+    <string name="web_server_connecting">Connecting…</string>
+    <string name="web_server_disconnected">Disconnected (retrying)</string>
+    <string name="web_origin_live">Live from server</string>
+    <string name="web_origin_cached">Cached</string>
+    <string name="web_cached_notice">Config server unreachable — using the cached configuration from %1$s.</string>
+    <string name="web_cached_notice_unknown">Config server unreachable — using the cached configuration.</string>
+    <plurals name="web_extra_networks">
+        <item quantity="one">%1$d more network from the server is not tunneled on this device</item>
+        <item quantity="other">%1$d more networks from the server are not tunneled on this device</item>
+    </plurals>
+    <string name="error_config_server_url_required">Enter a config-server URL</string>
+    <string name="error_config_server_url_invalid">Invalid config-server URL</string>
+    <string name="error_config_server_url_scheme">Supported schemes are tcp, udp, ws, wss and ring</string>
+    <string name="error_config_server_url_token">The URL must include the user token, e.g. udp://host:22020/user</string>
+    <string name="error_web_managed_root_unsupported">Root mode is not supported for config-server profiles</string>
+    <string name="error_web_no_cache">The config server is unreachable and no cached configuration is available</string>
+    <string name="error_web_cached_invalid">The cached server configuration is invalid</string>
+    <string name="error_web_start_failed">Could not start the config-server client</string>
+    <string name="error_web_sync_while_running">Disconnect before syncing the configuration</string>
+    <string name="error_web_sync_unreachable">The config server did not respond</string>
+    <string name="error_web_network_removed">The config server removed this network</string>
 </resources>

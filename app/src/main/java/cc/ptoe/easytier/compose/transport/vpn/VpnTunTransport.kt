@@ -42,9 +42,18 @@ class VpnTunTransport(
     // MTU lives on the (effective) profile; cached at start() so the poll loop's
     // establishWhenResolved() calls can reuse it without threading settings through.
     private var activeMtu: Int = DEFAULT_MTU
+    // EasyTier instance the TUN fd is attached to. Normally the profile id (the
+    // app starts the instance itself); in config-server mode the core starts the
+    // instance and its name comes from the server configuration.
+    private var activeInstanceName: String? = null
+    // Magic DNS is a device setting too: in config-server mode it comes from the
+    // delivered configuration rather than from the local profile.
+    private var activeDns: Boolean = false
 
     override suspend fun start(profile: EasyTierProfile, toml: String, globalSettings: GlobalSettings): RuntimeStatus {
         running = true
+        activeInstanceName = profile.id
+        activeDns = profile.enableMagicDns
         activeMtu = profile.mtu
         establishedIpv4Cidr = null
         establishedRoutes = emptyList()
@@ -74,12 +83,66 @@ class VpnTunTransport(
      */
     fun adopt(profile: EasyTierProfile, ipv4Cidr: String?, routes: List<String>): RuntimeStatus {
         running = true
+        activeInstanceName = profile.id
+        activeDns = profile.enableMagicDns
         establishedIpv4Cidr = ipv4Cidr
         establishedRoutes = routes
         val state = if (ipv4Cidr.isNullOrBlank()) RuntimeState.STARTING else RuntimeState.RUNNING
         val tunDevice = if (ipv4Cidr.isNullOrBlank()) null else context.getString(R.string.vpn_device_name)
         return RuntimeStatus(state, profile.id, profile.tunMode, ipv4Cidr, tunDevice, null)
             .also { mutableStatus.value = it }
+    }
+
+    /**
+     * Requests VPN consent ahead of a config-server session, where the instance
+     * name is unknown until the server delivers a configuration. Returns null
+     * when consent is already granted, or an ERROR status when it was refused
+     * (a background caller cannot show the system dialog).
+     */
+    suspend fun preparePermission(profile: EasyTierProfile): RuntimeStatus? {
+        val prepared = VpnService.prepare(context) ?: return null
+        mutableStatus.value = RuntimeStatus(RuntimeState.STARTING, profile.id, profile.tunMode, null, null, null)
+        if (permissionRequester.request(prepared)) return null
+        running = false
+        return RuntimeStatus(
+            RuntimeState.ERROR,
+            profile.id,
+            profile.tunMode,
+            null,
+            null,
+            context.getString(R.string.error_vpn_permission_denied),
+        ).also { mutableStatus.value = it }
+    }
+
+    /**
+     * Starts a TUN session for a core-managed instance (config-server mode).
+     * The fd is attached once the instance's virtual IPv4 is resolved through
+     * [establishWhenResolved]; [instanceName] is the core's instance name.
+     */
+    fun startManaged(
+        profile: EasyTierProfile,
+        instanceName: String,
+        enableMagicDns: Boolean,
+        mtu: Int,
+    ): RuntimeStatus {
+        running = true
+        activeInstanceName = instanceName
+        activeDns = enableMagicDns
+        activeMtu = mtu
+        establishedIpv4Cidr = null
+        establishedRoutes = emptyList()
+        return RuntimeStatus(RuntimeState.STARTING, profile.id, profile.tunMode, null, null, null)
+            .also { mutableStatus.value = it }
+    }
+
+    /**
+     * Forces the next [establishWhenResolved] call to recreate the TUN. Used
+     * when the config-server replaces the managed instance (address or routes
+     * may be unchanged, but the old fd belongs to the removed instance).
+     */
+    fun resetEstablishState() {
+        establishedIpv4Cidr = null
+        establishedRoutes = emptyList()
     }
 
     fun establishWhenResolved(profile: EasyTierProfile, ipv4Cidr: String, routes: List<String>): RuntimeStatus {
@@ -93,7 +156,14 @@ class VpnTunTransport(
         establishedRoutes = routes
         ContextCompat.startForegroundService(
             context,
-            EasyTierVpnService.intent(context, profile.id, ipv4Cidr, routes, profile.enableMagicDns, activeMtu),
+            EasyTierVpnService.intent(
+                context,
+                instanceName = activeInstanceName ?: profile.id,
+                ipv4Cidr = ipv4Cidr,
+                routes = routes,
+                dns = activeDns,
+                mtu = activeMtu,
+            ),
         )
         return RuntimeStatus(RuntimeState.RUNNING, profile.id, profile.tunMode, ipv4Cidr, context.getString(R.string.vpn_device_name), null)
             .also { mutableStatus.value = it }
