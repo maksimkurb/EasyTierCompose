@@ -82,11 +82,44 @@ abstract class BuildRustJniLibsTask : DefaultTask() {
     @get:Inject
     protected abstract val execOps: ExecOperations
 
+    /** Android API level cargo-ndk compiles against when `--platform` is not given. */
+    private val ndkPlatform = 21
+
     private val abiToTriple = mapOf(
         "arm64-v8a" to "aarch64-linux-android",
         "armeabi-v7a" to "armv7-linux-androideabi",
         "x86_64" to "x86_64-linux-android",
     )
+
+    /** clang `--target` triple (with API level) and sysroot include directory per Rust triple. */
+    private val bindgenTarget = mapOf(
+        "aarch64-linux-android" to ("aarch64-linux-android" to "aarch64-linux-android"),
+        "armv7-linux-androideabi" to ("armv7a-linux-androideabi" to "arm-linux-androideabi"),
+        "x86_64-linux-android" to ("x86_64-linux-android" to "x86_64-linux-android"),
+    )
+
+    /**
+     * bindgen (used by kcp-sys) hands libclang the plain Rust triple, which NDK headers reject
+     * ("Unversioned target triples are not supported!"). cargo-ndk only sets the underscored
+     * `BINDGEN_EXTRA_CLANG_ARGS_<triple>` variable and bindgen prefers the dashed one, so we
+     * provide the dashed variant with a versioned target plus the NDK include directories.
+     */
+    private fun bindgenEnv(ndk: File, rustTriple: String): Map<String, String> {
+        val (clangTriple, sysrootArch) = bindgenTarget.getValue(rustTriple)
+        val llvm = File(ndk, "toolchains/llvm/prebuilt").listFiles()?.firstOrNull { it.isDirectory }
+            ?: return emptyMap()
+        val sysroot = File(llvm, "sysroot")
+        val builtinInclude = File(llvm, "lib/clang").listFiles()
+            ?.filter { File(it, "include").isDirectory }?.maxByOrNull { it.name }?.resolve("include")
+        val args = buildList {
+            add("--target=$clangTriple$ndkPlatform")
+            add("--sysroot=${sysroot.invariantSeparatorsPath}")
+            builtinInclude?.let { add("-isystem"); add(it.invariantSeparatorsPath) }
+            add("-isystem"); add("${sysroot.invariantSeparatorsPath}/usr/include/$sysrootArch")
+        }
+        val value = args.joinToString(" ")
+        return mapOf("BINDGEN_EXTRA_CLANG_ARGS_$rustTriple" to value)
+    }
 
     private fun run(
         cmd: List<String>,
@@ -142,6 +175,14 @@ abstract class BuildRustJniLibsTask : DefaultTask() {
             // Never let rustup download a toolchain behind the developer's back.
             "RUSTUP_AUTO_INSTALL" to "0",
         )
+        // Reproducibility: keep machine-specific absolute paths out of panic messages / debug strings.
+        val cargoHome = System.getenv("CARGO_HOME") ?: File(System.getProperty("user.home"), ".cargo").path
+        val remap = listOf(
+            File(cargoHome).absolutePath to "/cargo",
+            core.absolutePath to "/EasyTier-Core",
+            cargoTargetDir.get().asFile.absolutePath to "/cargo-target",
+        ).joinToString(" ") { (from, to) -> "--remap-path-prefix=$from=$to" }
+        env["RUSTFLAGS"] = listOfNotNull(System.getenv("RUSTFLAGS")?.takeIf { it.isNotBlank() }, remap).joinToString(" ")
         val ndkLlvmLib = File(ndk, "toolchains/llvm/prebuilt").listFiles()
             ?.firstOrNull { it.isDirectory }?.resolve("lib")
         if (ndkLlvmLib != null && ndkLlvmLib.listFiles()?.any { it.name.startsWith("libclang") } == true &&
@@ -178,7 +219,7 @@ abstract class BuildRustJniLibsTask : DefaultTask() {
                         "build", "--release", "--locked", "--package", "easytier-android-jni",
                     ),
                     core,
-                    env,
+                    env + bindgenEnv(ndk, abiToTriple.getValue(abi)),
                 )
                 val so = File(out, "$abi/libeasytier_android_jni.so")
                 if (!so.isFile || so.length() == 0L) {
