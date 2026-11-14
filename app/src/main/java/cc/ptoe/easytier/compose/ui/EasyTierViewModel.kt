@@ -155,12 +155,15 @@ class EasyTierViewModel(
         webSyncRunning.value = false
         when (result) {
             is WebSyncResult.Success -> {
-                val cached = profile.copy(cachedToml = result.toml, cachedAt = result.syncedAt)
-                draft.value = draft.value?.takeIf { it.id == cached.id }?.copy(
-                    cachedToml = cached.cachedToml,
-                    cachedAt = cached.cachedAt,
-                )
-                val stored = state.value.profiles.firstOrNull { it.id == cached.id }
+                // The editor may have changed while the sync was in flight: only
+                // apply the cache when it still belongs to the same endpoint.
+                val current = draft.value?.takeIf {
+                    it.id == profile.id && it.configServerUrl?.trim() == profile.configServerUrl?.trim()
+                }
+                if (current != null) {
+                    draft.value = current.copy(cachedToml = result.toml, cachedAt = result.syncedAt)
+                }
+                val stored = state.value.profiles.firstOrNull { it.id == profile.id }
                 if (stored != null && stored.configServerUrl?.trim() == profile.configServerUrl?.trim()) {
                     repository.save(stored.copy(cachedToml = result.toml, cachedAt = result.syncedAt))
                 }

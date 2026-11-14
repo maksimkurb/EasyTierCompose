@@ -164,6 +164,7 @@ class EasyTierRuntimeCoordinator private constructor(
 
         @Volatile var active = true
         @Volatile var clientStarted = false
+        @Volatile var clientFailed = false
         @Volatile var primaryInstance: String? = null
         @Volatile var appliedToml: String? = null
         @Volatile var appliedAt: Long? = null
@@ -183,6 +184,7 @@ class EasyTierRuntimeCoordinator private constructor(
         fun toStatus(connected: Boolean): WebSessionStatus = WebSessionStatus(
             serverState = when {
                 connected -> WebServerState.CONNECTED
+                clientFailed -> WebServerState.DISCONNECTED
                 clientStarted -> WebServerState.DISCONNECTED
                 else -> WebServerState.CONNECTING
             },
@@ -217,19 +219,37 @@ class EasyTierRuntimeCoordinator private constructor(
         }
         publish(RuntimeStatus(RuntimeState.STARTING, effective.id, effective.tunMode, null, null, null))
         startWebEvents(session)
-        if (!startWebClient(session, effective)) {
-            stopWebSessionLocked(session)
-            return failure(effective, context.getString(R.string.error_web_start_failed))
+        val clientReady = startWebClient(session, effective)
+        if (!clientReady) {
+            session.clientFailed = true
+            // A client that cannot start can never retry, so without a cache the
+            // session cannot recover.
+            if (effective.cachedToml.isNullOrBlank()) {
+                stopWebSessionLocked(session)
+                return failure(effective, context.getString(R.string.error_web_start_failed))
+            }
         }
         publish(mutableStatus.value)
 
-        val received = withTimeoutOrNull(WEB_FIRST_CONFIG_TIMEOUT_MILLIS) { session.firstApplied.await() } != null
+        val received = clientReady &&
+            withTimeoutOrNull(WEB_FIRST_CONFIG_TIMEOUT_MILLIS) { session.firstApplied.await() } != null
         val appliedToml = if (received) session.appliedToml else null
         val instanceName = if (received) session.primaryInstance else null
         when (val source = webStartSource(effective, appliedToml, instanceName)) {
             is WebStartSource.Live -> {
                 session.usingCache = false
                 session.lastSyncedAt = session.appliedAt ?: session.lastSyncedAt
+                if (effective.tunMode == TunMode.VPN_SERVICE) {
+                    vpn.startManaged(
+                        profile = effective,
+                        instanceName = source.instanceName,
+                        enableMagicDns = session.primaryDns,
+                        mtu = session.primaryMtu,
+                    )
+                } else {
+                    // No TUN to attach: the core-managed instance is the session.
+                    publish(RuntimeStatus(RuntimeState.RUNNING, effective.id, effective.tunMode, null, null, null))
+                }
                 publish(mutableStatus.value)
                 pollWebLive(session, effective)
                 return mutableStatus.value
@@ -437,7 +457,7 @@ class EasyTierRuntimeCoordinator private constructor(
                         runCatching { webBridge.stop() }
                         return@launch
                     }
-                    if (!info.virtualIpv4.isNullOrBlank()) {
+                    if (!info.virtualIpv4.isNullOrBlank() && profile.tunMode == TunMode.VPN_SERVICE) {
                         if (attachedVersion != session.configVersion) {
                             // A re-applied config replaced the core instance; its old fd is gone.
                             vpn.resetEstablishState()
@@ -452,7 +472,14 @@ class EasyTierRuntimeCoordinator private constructor(
                             session.needsLocalRemoval = false
                         }
                     } else {
-                        publish(mutableStatus.value.copy(hostname = info.hostname, natType = info.natType))
+                        publish(
+                            mutableStatus.value.copy(
+                                virtualIpv4 = info.virtualIpv4 ?: mutableStatus.value.virtualIpv4,
+                                peers = info.peers,
+                                hostname = info.hostname,
+                                natType = info.natType,
+                            ),
+                        )
                     }
                 }
                 // STARTING polls faster to resolve the virtual IPv4 quickly.
