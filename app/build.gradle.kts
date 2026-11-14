@@ -1,3 +1,4 @@
+import cc.ptoe.easytier.gradle.BuildRustJniLibsTask
 import java.io.StringReader
 import java.util.Properties
 
@@ -43,6 +44,53 @@ val releaseKeyPassword: Provider<String> = providers.environmentVariable("KEY_PA
 val hasSigningCredentials: Provider<Boolean> = releaseStoreFile
     .map { path: String -> path.isNotBlank() }
     .orElse(false)
+
+// ---------------------------------------------------------------------------
+// Native EasyTier core (libeasytier_android_jni.so)
+//
+// Built from the EasyTier-Core git submodule with cargo-ndk into
+// app/build/generated/rustJniLibs/<abi>/ and registered as a jniLibs source.
+//   ./gradlew :app:buildRustJniLibs                  build only the native libs
+//   -PrustAbis=arm64-v8a,x86_64                      limit ABIs (default: all three)
+//   -PskipRustBuild -PrustJniLibsDir=/path/to/dir    use a prebuilt <dir>/<abi>/*.so
+//   -PrustPatches=a.patch,b.patch                    apply patches/<name> to the core (opt-in)
+// ---------------------------------------------------------------------------
+val skipRustBuild: Boolean = providers.gradleProperty("skipRustBuild")
+    .map { it != "false" }.orElse(false).get()
+val prebuiltRustJniLibsDir: Provider<String> = providers.gradleProperty("rustJniLibsDir")
+val rustAbis: List<String> = providers.gradleProperty("rustAbis")
+    .map { v -> v.split(',').map { it.trim() }.filter { it.isNotEmpty() } }
+    .orElse(listOf("arm64-v8a", "armeabi-v7a", "x86_64")).get()
+val rustPatches: List<String> = providers.gradleProperty("rustPatches")
+    .map { v -> v.split(',').map { it.trim() }.filter { it.isNotEmpty() } }
+    .orElse(emptyList()).get()
+
+val rustCoreDir = rootProject.layout.projectDirectory.dir("EasyTier-Core")
+val rustCoreCommit: Provider<String> = providers.exec {
+    workingDir = rootProject.projectDir
+    commandLine("git", "rev-parse", "HEAD:EasyTier-Core")
+}.standardOutput.asText.map { it.trim() }
+
+val buildRustJniLibs = tasks.register<BuildRustJniLibsTask>("buildRustJniLibs") {
+    group = "build"
+    description = "Builds libeasytier_android_jni.so from EasyTier-Core with cargo-ndk."
+    coreDir.set(rustCoreDir)
+    coreSources.from(fileTree(rustCoreDir) {
+        exclude(
+            "target/**", ".git", ".git/**", "**/node_modules/**", "docs/**", "assets/**",
+            "easytier-gui/**", "easytier-web/**", "easytier-contrib/easytier-uptime/**",
+            "*.md", "*.json", "*.yaml", "*.yml", "script/**", "**/frontend*/**",
+        )
+    })
+    coreCommit.set(rustCoreCommit)
+    abis.set(rustAbis)
+    ndkDir.set(androidComponents.sdkComponents.ndkDirectory.map { it.asFile.absolutePath })
+    patchNames.set(rustPatches)
+    patchFiles.from(fileTree(rootProject.layout.projectDirectory.dir("patches")) { include("*.patch") })
+    cargoTargetDir.set(rootProject.layout.buildDirectory.dir("rust-target"))
+    outputDir.set(layout.buildDirectory.dir("generated/rustJniLibs"))
+    buildInfoFile.set(layout.buildDirectory.file("generated/rustJniLibs-BUILD-INFO.txt"))
+}
 
 android {
     namespace = "cc.ptoe.easytier.compose"
@@ -117,6 +165,11 @@ android {
         aidl = true
         buildConfig = true
     }
+    dependenciesInfo {
+        // Google-signed dependency metadata blob; not reproducible and not wanted in F-Droid builds.
+        includeInApk = false
+        includeInBundle = false
+    }
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -147,6 +200,13 @@ android {
 // Android Studio / CLI share the same source of truth without extra flags.
 androidComponents {
     onVariants { variant ->
+        if (skipRustBuild) {
+            val dir = prebuiltRustJniLibsDir.orNull
+                ?: throw GradleException("-PskipRustBuild requires -PrustJniLibsDir=<dir containing <abi>/libeasytier_android_jni.so>")
+            variant.sources.jniLibs?.addStaticSourceDirectory(file(dir).absolutePath)
+        } else {
+            variant.sources.jniLibs?.addGeneratedSourceDirectory(buildRustJniLibs, BuildRustJniLibsTask::outputDir)
+        }
         variant.outputs.forEach { output ->
             output.versionCode.set(commitCount)
             output.versionName.set(semanticVersion)
