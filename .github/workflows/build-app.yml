@@ -1,0 +1,81 @@
+name: Build app
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-app-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    uses: ./.github/workflows/build-native.yml
+
+  app:
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # versionCode is the commit count
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@7296c772c13d12d9871528814b51fb2143c138ef # v6.4.1
+
+      - name: Install Android NDK, CMake and platform
+        run: |
+          ndk="$(sed -n 's/^ *ndkVersion *= *"\(.*\)"/\1/p' app/build.gradle.kts | tr -d '\r')"
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | sudo "$sdkmanager" --licenses > /dev/null || true
+          sudo "$sdkmanager" "ndk;$ndk" "cmake;4.1.2" "build-tools;37.0.0" "platforms;android-37.0" > /dev/null
+
+      - name: Download native libraries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.native.outputs.artifact-name }}
+          path: native
+
+      - name: Unit tests and lint
+        run: >
+          ./gradlew --console=plain
+          -PskipRustBuild "-PrustJniLibsDir=$GITHUB_WORKSPACE/native/jniLibs"
+          :app:testDebugUnitTest :app:lintDebug
+
+      - name: Build debug APKs
+        run: >
+          ./gradlew --console=plain
+          -PskipRustBuild "-PrustJniLibsDir=$GITHUB_WORKSPACE/native/jniLibs"
+          :app:assembleDebug
+
+      - name: Upload debug APKs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug-apks
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 7
