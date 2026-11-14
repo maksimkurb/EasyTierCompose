@@ -165,6 +165,10 @@ android {
         aidl = true
         buildConfig = true
     }
+    androidResources {
+        // Languages shipped in the APK (keep in sync with res/xml/locales_config.xml).
+        localeFilters += listOf("en", "ru", "zh-rCN")
+    }
     dependenciesInfo {
         // Google-signed dependency metadata blob; not reproducible and not wanted in F-Droid builds.
         includeInApk = false

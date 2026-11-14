@@ -107,7 +107,7 @@ internal fun ProfilesScreen(
                 importProfile(result.profile)
             }
 
-            is TomlImportResult.Failure -> importError = result.message
+            is TomlImportResult.Failure -> importError = result.messageRes?.let(context::getString) ?: result.message
         }
     }
 
