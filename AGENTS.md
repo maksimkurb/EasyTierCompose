@@ -84,6 +84,78 @@ registered in `app/build.gradle.kts`). Never commit a built `.so`; `app/src/main
 * **JNI wrapper**: if native method signatures change in a new core version, also sync
   `EasyTier-Core/easytier-contrib/easytier-android-jni/kotlin/com/easytier/jni/` into `app/src/main/java/com/easytier/jni/`.
 
+## Config-server (web-managed) mode (English)
+
+EasyTier-web dashboards ("config servers") can own a device's network configuration. The app implements this as a
+second profile kind (`ProfileKind.WEB_MANAGED`) instead of a second sync engine: **the core already does the work**.
+Verified against `EasyTier-Core` @ `81487c3`:
+
+* `easytier-core/src/management/full/web_client.rs` — `WebClient` connects to the endpoint, retries every
+  `RETRY_INTERVAL = 1s`, heartbeats every second, and applies server-pushed `NetworkConfig`s by running/removing
+  network instances *inside the core*. `ConfigServerEndpoint::parse` defines the accepted endpoints: an absolute URL
+  with a supported tunnel scheme (`tcp`, `udp`, `ws`, `wss`, `wg`, `quic`, `faketcp`, `unix`, `http`, `https`,
+  `ring`, `txt`, `srv` with the JNI feature set) whose **last path segment is a non-empty user token**
+  (percent-decoded). For non-WebSocket schemes the path is stripped from the connect URL; the token is sent in the
+  heartbeat. There is no default server.
+* `easytier-contrib/easytier-ffi/src/config_server.rs` — `start_config_server_client` / `stop_config_server_client` /
+  `is_config_server_client_connected`, the process-wide singleton and `ManagedConfigServerClientHooks`
+  (`manages_remote_config_instances() = true`). Stopping the client deletes the instances it manages; there is **no
+  offline cache** and no `ConfigFileStorage` usage in this path (the JNI manager has no config dir, so nothing is
+  persisted natively).
+* `easytier-contrib/easytier-android-jni/src/lib.rs` + `config_server_api.rs` — the JNI symbols and the
+  `ConfigServerEventCallback` object (`onEvent(String)`, called on a core worker thread; JNI calls from inside the
+  callback are rejected by the FFI).
+* Events are JSON: `{"event":"run_network_instance"|"delete_network_instance","success":true,"instance_id":"…",
+  "instance_name":"…","network_name":"…"}`. `instance_name` is the config's `network_name` (`NetworkConfig::gen_config`
+  calls `set_inst_name(network_name)`), not the app profile id.
+* The delivered configuration can be read back with the generic JSON-RPC bridge: service
+  `api.config.ConfigRpcService`, method `get_config`, payload
+  `{"instance":{"instance_selector":{"name":"<instance_name>"}}}` → `toml_config`. `collectNetworkInfos` only
+  reports runtime state (virtual IP, routes, peers). `api.manage.WebClientService` is explicitly blocked from the
+  JNI bridge.
+* The managed instance uses the same `NativeInstanceFactory` as locally started instances, so `setTunFd(instance_name,
+  fd)` attaches a `VpnService`/`RootTun` fd to it like any other instance. The mobile TUN host waits for the fd on a
+  channel, so attaching after the server's `run_network_instance` event is the intended order.
+
+### What the app adds (and nothing more)
+
+* `core/WebManagedConfig.kt` — pure logic: endpoint validation mirroring the core parser, event parsing, the
+  `GetConfig` payload/response helpers, "is this config replayable", the live-vs-cached-vs-unavailable decision,
+  the cache update rule (failed syncs never touch the cache) and the cached-profile replay. All unit-tested.
+* `core/WebConfigServerBridge.kt` — the only JNI touch points (`start`/`stop`/`isConnected`/`configToml`/`retainOnly`).
+* `core/EasyTierRuntimeCoordinator.kt` — a per-connection `WebSession` that consumes the callback events through a
+  channel (never touching JNI on the callback thread), caches every applied config through
+  `ProfileRepository.saveWebCache` (cache fields only; other edits are preserved), and drives the session:
+  1. Connect waits up to `WEB_FIRST_CONFIG_TIMEOUT_MILLIS = 12s` for the first applied config. Live → attach the TUN
+     to the core-managed instance and poll `collectNetworkInfos(instance_name)`.
+  2. Otherwise the cached TOML is replayed as an ordinary local instance (`replayWebConfig`: imported from the
+     cached TOML, `id = profile.id`, the profile's TUN mode and hostname, global overrides applied). The client is
+     **kept running**: the core retries in the background, and when it eventually delivers a config the session is
+     promoted to live (`vpn.startManaged` reattaches the TUN, then `retainNetworkInstance(arrayOf(primary))` drops the
+     cached instance). No WorkManager, timers or extra services.
+  3. No cache and no config → `error_web_no_cache`.
+* `RuntimeStatus.web: WebSessionStatus` carries the server state (from `isConfigServerClientConnected`, sampled when
+  a status is published), the origin (`LIVE`/`CACHED`) and the last sync time; the dashboard renders it and a
+  non-blocking "using cached configuration from …" notice.
+* `ProfileRepository.machineId()` — a random UUID per install, persisted in the profiles DataStore and kept across a
+  reset; it is the `machine_id` the server uses to recognise the device.
+
+### Limitations
+
+* **Root TUN is rejected** for web-managed profiles (`ProfileValidator` and the Settings switch): the core's
+  config-server client runs in the app process and cannot manage instances inside the libsu root daemon. VPN Service
+  and No TUN work.
+* One server can deliver several networks; the app tunnels the **first applied instance only** and shows a notice for
+  the others. Promotion keeps only that instance (`retainNetworkInstance`), so extra managed instances may be
+  restarted by the server later.
+* The instance name the server assigns is used for `setTunFd`/`collectNetworkInfos`; a delivered config without a
+  usable `[network_identity].network_name` cannot be imported, so it is neither cached nor tunneled (the client
+  still runs and the session stays on the previous cache).
+* No live server was available while developing this: the event/RPC shapes above come from the pinned core sources,
+  and only the pure logic (URL rules, event parsing, cache policy, replay, JSON compatibility) is covered by tests.
+  The end-to-end path (start client → event → `GetConfig` → TUN attach → promotion) has **not** been exercised on a
+  device against a real EasyTier-web server.
+
 ## Localization
 
 Default strings are English (`values/strings.xml`); Russian is `values-ru/strings.xml` and Chinese `values-zh-rCN/strings.xml` (both complete).
@@ -117,6 +189,21 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
   经 `ProfileValidator` + `TomlConfigBuilder` 生成 TOML，按 `tunMode` 分派到 VPN / Root 实现；轮询 `collectNetworkInfos` 解析虚拟
   IPv4、`proxy_cidrs` 远端路由、hostname、NAT 类型与 `peer_route_pairs` Peer 列表（VPN\_SERVICE 直接在
   app 进程轮询；ROOT\_TUN 通过 AIDL 收集 `RootTunTransport.status` flow）。
+
+  **Web-managed（配置服务器）会话**走单独分支 `startWebManagedLocked`：`WebSession` 保存一次连接的状态
+  （主实例名、已应用 TOML、缓存时间、是否使用缓存、额外网络数），事件经 `Channel` 从 Rust 回调线程转交协程；
+  `WebConfigServerBridge` 封装 JNI。首个配置等待上限 12s：收到则把 TUN 挂到核心托管的实例并按
+  `instance_name` 轮询；否则回放缓存 TOML 作为普通本地实例，同时保留客户端在后台重连，稍后收到配置时
+  `promoteWebSession` 切换为 live 并删除缓存实例。详见英文段落 *Config-server (web-managed) mode*。
+
+* [WebManagedConfig.kt](app/src/main/java/cc/ptoe/easytier/compose/core/WebManagedConfig.kt) — 纯函数：
+  配置服务器 URL 校验（复刻核心 `ConfigServerEndpoint::parse` 语义）、事件 JSON 解析、
+  `ConfigRpcService/GetConfig` payload/响应、缓存可用性判断、live/cached/unavailable 决策、
+  「失败不覆盖缓存」规则与缓存回放（`replayWebConfig`）。全部由单元测试覆盖。
+
+* [WebConfigServerBridge.kt](app/src/main/java/cc/ptoe/easytier/compose/core/WebConfigServerBridge.kt) —
+  `WebConfigServerBridge` 接口 + `JniWebConfigServerBridge`：start/stop/isConnected/configToml/retainOnly，
+  是此功能唯一的 JNI 触点。
 
 * [ProfileValidator.kt](app/src/main/java/cc/ptoe/easytier/compose/core/ProfileValidator.kt) —
   `ProfileValidator`：字段校验（IPv4/IPv6 CIDR、MTU、peers、proxy networks、port forwards、VPN
@@ -183,7 +270,9 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
 * [EasyTierModels.kt](app/src/main/java/cc/ptoe/easytier/compose/data/EasyTierModels.kt) —
   `EasyTierProfile`（`@Serializable`，含 \~50 个字段：基础、peers、listeners、proxy networks、port
   forwards、VPN portal、secure mode、STUN/whitelists、KCP/QUIC proxy flags、bps 限制等；`sourceUrl`
-  记录导入来源，`sourceSyncedAt` 记录上次成功同步时刻，`autoRefresh`（默认 true）控制连接前是否自动重读）、
+  记录导入来源，`sourceSyncedAt` 记录上次成功同步时刻，`autoRefresh`（默认 true）控制连接前是否自动重读；
+  `kind`（`ProfileKind.STATIC`/`WEB_MANAGED`，默认 STATIC）、`configServerUrl`、`cachedToml`/`cachedAt`
+  用于配置服务器模式，旧 JSON 反序列化时全部取默认值）、
   `GlobalSettings`（
   `tunDeviceName` / `noTun` / `startOnBoot` / `mtu` / `multiThread` / `multiThreadCount` / bps 限制）、
   `TunMode` / `CompressionAlgo` / `EncryptionAlgorithm` 枚举、`Peer` / `ProxyNetwork` /
@@ -194,7 +283,9 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
 * [ProfileRepository.kt](app/src/main/java/cc/ptoe/easytier/compose/data/ProfileRepository.kt) —
   `ProfileRepository`：DataStore Preferences 持久化（store 名 `easytier_profiles`，key `profiles_v1` +
   `selected_profile_id`），JSON 序列化，含损坏数据自动备份恢复逻辑（`profiles_v1_corrupt`）；提供
-  `newProfile` / `save` / `delete` / `select` / `reset`。`GlobalSettingsRepository`：独立 DataStore（
+  `newProfile` / `save` / `delete` / `select` / `reset`。另有 `machineId()`（配置服务器用来识别设备的
+  随机 UUID，首次使用时生成并持久化，`reset()` 不清除）与 `saveWebCache(profileId, toml, syncedAt)`
+  （只更新 `cachedToml`/`cachedAt`，不覆盖其他字段；仅成功同步时调用）。`GlobalSettingsRepository`：独立 DataStore（
   `easytier_global_settings`），持久化 TUN 设备名 / `no_tun` 等全局设置。
 
 ### transport 层
@@ -287,9 +378,10 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
 
   * [ProfilesScreen.kt](app/src/main/java/cc/ptoe/easytier/compose/ui/screens/ProfilesScreen.kt) —
     profile 列表 + 删除确认对话框 + 导出（`CreateDocument` 写
-    `TomlConfigBuilder.build(profile, globalSettings)`）。FAB 弹出三选添加对话框：手动添加 /
-    导入 TOML 文件（`OpenDocument`，SAF 读取）/ 从链接导入（分享链接本地解码；http(s) URL 经
-    `ProfileLinkSource` 抓取 TOML，上限 1MB）；成功后回填为编辑器草稿并记录 `sourceUrl`，失败弹错误对话框。
+    `TomlConfigBuilder.build(profile, globalSettings)`，web-managed 不导出）。FAB 弹出四选添加对话框：手动添加 /
+    连接配置服务器（URL 按核心解析规则校验后创建 `WEB_MANAGED` 草稿）/ 导入 TOML 文件（`OpenDocument`，SAF 读取）/
+    从链接导入（分享链接本地解码；http(s) URL 经 `ProfileLinkSource` 抓取 TOML，上限 1MB）；成功后回填为
+    编辑器草稿并记录 `sourceUrl`，失败弹错误对话框。web-managed 卡片的摘要显示缓存网络名或服务器 host（不含 token）。
 
   * [PeersScreen.kt](app/src/main/java/cc/ptoe/easytier/compose/ui/screens/PeersScreen.kt) —
     `PeersScreen` 列出 `RuntimePeer`，`PeerDetailsDialog` 展示延迟 / 隧道 / 丢包率等详情。
@@ -300,9 +392,17 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
     Flags — KCP Proxy / Flags — QUIC Proxy）。若 profile 带 `sourceUrl`，顶部额外显示「Imported from link」
     分区：展示来源 URL、**Refresh from link** 按钮（运行中禁用；刷新结果先进入草稿，保存时才落盘）、
     **Auto-refresh on connect** 开关与只读的「Last synced」本地化时间（`DateUtils.formatDateTime`）。
+    **web-managed profile 编辑器只显示** General（名称 / hostname）与「Config server」分区：URL、提示、
+    **Sync now**（`EasyTierRuntimeCoordinator.syncWebManagedConfig`，运行中禁用）、上次同步时间与只读的缓存摘要
+    （网络名 / 虚拟 IP 或 DHCP）；修改 URL 会清空草稿里的缓存（不同服务器的配置不可混用）。其余分区全部隐藏。
+
+  * [DashboardScreen.kt](app/src/main/java/cc/ptoe/easytier/compose/ui/screens/DashboardScreen.kt) —
+    状态卡 / 详情 / WireGuard portal 卡；web-managed 额外显示 `WebConfigStatusGroup`（服务器状态、live/cached、
+    上次同步）与使用缓存时的非阻塞提示 `CachedConfigNotice`，多网络时显示 `web_extra_networks` 复数提示。
 
   * [SettingsScreen.kt](app/src/main/java/cc/ptoe/easytier/compose/ui/screens/SettingsScreen.kt) —
-    TUN 模式切换、**Global overrides**（TUN 设备名 / `no_tun` / Start on boot）、通知授权与 Reset。
+    TUN 模式切换（web-managed 不提供 Root 选项）、**Global overrides**（TUN 设备名 / `no_tun` / Start on boot）、
+    通知授权与 Reset。
 
 * `ui/theme/` — `EasyTierTheme`（亮/暗双色方案 + 自定义 `ExpressiveShapes`）、`Color.kt`、`Type.kt`。
 
@@ -394,19 +494,24 @@ VpnService/其他代理的 TUN 劫持；VPN\_SERVICE 侧的 No TUN 仍在 app �
 
 * **不自动连接**：`MainActivity.onResume()` 有意留空，连接必须由用户显式触发。
 
+* **Web-managed（配置服务器）模式**：`ProfileKind.WEB_MANAGED` 的 profile 由核心的 config-server
+  客户端（`startConfigServerClient`）连接并下发配置，应用不实现第二套同步/重连逻辑。应用只做：等待首个
+  `run_network_instance` 事件（12s）、用 `api.config.ConfigRpcService/GetConfig` 读取 TOML 并缓存
+  （`ProfileRepository.saveWebCache`，失败绝不清空/覆盖缓存）、把 TUN 挂到核心托管实例（`setTunFd` +
+  `collectNetworkInfos(instance_name)`）、服务器不可达时回放缓存为普通本地实例、稍后收到配置时升级为 live。
+  **Root 模式被拒绝**（客户端在 app 进程，无法管理 root daemon 内的实例）；单服务器多网络只隧道第一个实例，
+  其余给出提示。**应用仍然绝不自动连接**，也不在后台（未连接时）同步。
+
 * **配置来源 URL 只在导入、手动刷新与「连接前」读取**：`ProfileLinkSource` 由「Import from link」/
   「Refresh from link」以及 `EasyTierRuntimeCoordinator.start` 里的 `autoRefreshBeforeStart` 调用。
   自动刷新仅发生在用户/开机显式启动某个 profile 时（无 WorkManager、无定时器、无后台轮询、不在应用启动时抓取），
   且仅当 profile 有 `sourceUrl`、`autoRefresh` 开启、距上次成功同步 ≥30 分钟。分享链接在本地解码，不触网；
-  `udp/tcp/ws/wss/ring` config-server URL 视为刷新失败。**应用仍然绝不自动连接。**
-
-* **Web 控制台 config-server 模式未实现**：EasyTier-Core 的 JNI 提供 `startConfigServerClient` /
-  `stopConfigServerClient` / `isConfigServerClientConnected`（prebuilt `.so` 中已导出），但该模式由服务器
-  动态下发并可管理多实例，需要新的运行时与多 TUN 编排，因此应用目前将其 URL（`udp/tcp/ws/wss/ring`）
-  明确判为不可导入，只支持「导出/托管的 TOML」与分享链接。
+  `udp/tcp/ws/wss/ring` config-server URL 在「Import from link」中仍视为不可导入的配置（要使用配置服务器，
+  请用「Connect to config server」创建 web-managed profile）。
 
 * **运行中不可编辑/删除/切换模式**：`EasyTierViewModel.saveDraft` / `delete` / `updateTunMode` 均检查
-  `RuntimeState.STARTING/RUNNING` 并拒绝；`resetProfiles` 会先 `coordinator.stop()` 再清空。
+  `RuntimeState.STARTING/RUNNING` 并拒绝；`updateTunMode` 另外拒绝把 web-managed profile 切到 ROOT_TUN；
+  `resetProfiles` 会先 `coordinator.stop()` 再清空。
 
 * **Hostname 自动补全**：`EasyTierRuntimeCoordinator.start` 通过 `withDeviceHostnameIfBlank` 在
   profile 留空时取 `Settings.Global.DEVICE_NAME`（回退 `Build.MODEL`），剥离 ISO 控制字符并截断到 32
@@ -443,8 +548,19 @@ VpnService/其他代理的 TUN 劫持；VPN\_SERVICE 侧的 No TUN 仍在 app �
   `sourceUrl`）、失败（离线异常、config-server URL、校验失败）不改变已存 profile、成功时应用新配置并保留
   设备级选项与 `sourceSyncedAt`、旧版 JSON（无新字段）仍能反序列化且默认 `autoRefresh=true`。
 
+* [ConfigServerUrlTest.kt](app/src/test/java/cc/ptoe/easytier/compose/ConfigServerUrlTest.kt) 覆盖
+  config-server URL 校验：核心接受的 `udp/tcp/ws/wss/ring`（含百分号编码 token）、裸 token、空 token
+  （含结尾 `/`）、未知 scheme、缺少 host、`configServerHost` 不泄露 token/凭据。
+
+* [WebManagedConfigTest.kt](app/src/test/java/cc/ptoe/easytier/compose/WebManagedConfigTest.kt) 覆盖：
+  `run_network_instance`/`delete_network_instance` 事件解析（含失败/未知/畸形事件）、`GetConfig` payload
+  与 `toml_config` 解析、缓存可用性、失败同步不改缓存、live/cached/unavailable 决策、缓存回放
+  （instance 名改为 profile id、保留网络配置、hostname/MTU 覆盖、无缓存与坏缓存的本地化错误）、
+  缓存摘要、旧 JSON 反序列化为 STATIC 以及 web-managed 字段的序列化往返。
+
 * 修改 `ProfileValidator.kt` / `TomlConfigBuilder.kt` / `NativeConfigParser.kt` / `NetworkInfo.kt` /
-  `ProfileAutoRefresh.kt` 或 `EasyTierModels.kt` 后应运行 `./gradlew :app:testDebugUnitTest`。
+  `ProfileAutoRefresh.kt` / `WebManagedConfig.kt` / `EasyTierRuntimeCoordinator.kt` 或 `EasyTierModels.kt`
+  后应运行 `./gradlew :app:testDebugUnitTest`。
 
 * instrumented 测试（`ExampleInstrumentedTest`）为占位。
 

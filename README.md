@@ -23,8 +23,14 @@ management, network orchestration and two ways of attaching the virtual network 
 - **Configuration import** — import a TOML file, a TOML URL, or an EasyTier configuration share link
   (`https://easytier.cn/comp_cfg?...`); imported profiles remember the source URL and are re-read automatically
   before connecting when the saved copy is older than 30 minutes (can be switched off per profile), or on demand
-  from the editor. A failed refresh is silent: the saved configuration is used. Web console *config-server* URLs
-  (`udp://…`) are a runtime management channel, not a configuration format: export a TOML from the console instead.
+  from the editor. A failed refresh is silent: the saved configuration is used.
+- **Web-managed profiles (config server)** — *Profiles → Connect to config server* creates a profile for an
+  EasyTier-web dashboard. The core's own config-server client connects, heartbeats and applies the network
+  configuration the dashboard delivers; the app only drives its lifecycle and attaches the TUN. Every received
+  configuration is cached on the device, so the last one keeps working when the server is unreachable (the core
+  keeps retrying while the profile is connected). The dashboard shows the server state, whether the running
+  configuration is live or cached, and the last sync time. Root TUN mode is not available for these profiles
+  (the client runs in the app process); use VPN Service or No TUN.
 - **Magic DNS** — EasyTier's built-in DNS (`100.100.100.101`) in both TUN modes; `ROOT_TUN` additionally switches the system DNS through the root shell
 - **Peers screen** — runtime peers with virtual IP, latency, tunnel protocol, packet loss, NAT type and cost (direct / relay)
 - **Global overrides** — TUN device name, `no_tun` and SOCKS5 (port and listen address) shared by all profiles
@@ -156,6 +162,16 @@ Publishing (CI, signing keys, F-Droid repository): [docs/RELEASING.md](docs/RELE
   *Auto-refresh* switched on (at most once per 30 minutes, only when the saved copy is stale). The request is a
   plain HTTP(S) `GET` of exactly that URL; no other data is sent, and a failure falls back to the saved copy.
   EasyTier configuration share links are decoded locally and make no request.
+- **Web-managed profiles** connect only to the config-server endpoint you typed in. There is no default or
+  built-in server. While such a profile is connected, the EasyTier core's config-server client sends the standard
+  protocol messages to that server: the endpoint's user token, a random per-install machine ID, the device
+  hostname (the profile's hostname, auto-filled from the Android device name when blank), the app/core version,
+  the device OS description and the IDs of the network instances it runs. The server answers with the network
+  configurations, which are applied by the core. Nothing else is contacted, there is no sync in the background
+  while the profile is stopped, and the app has no server-side account handling of its own.
+- The last configuration received from a config server is cached in the app's private storage and replayed
+  locally when the server is unreachable. Like any profile it may contain network secrets; it is never logged,
+  and only the server host (never the token or the configuration body) is written to the app log.
 - The EasyTier core is a VPN: it talks to the peers you configure. In addition, to detect the NAT type and its public
   address (needed for NAT traversal / hole punching) it contacts **public STUN servers** by default, which see your public
   IP address and the UDP/TCP port used:
