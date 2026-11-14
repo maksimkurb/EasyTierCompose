@@ -438,6 +438,6 @@
     <string name="vpn_notification_title">EasyTier VPN active</string>
     <string name="vpn_notification_text">EasyTier is routing through Android VPN</string>
     <string name="vpn_notification_channel">EasyTier VPN</string>
-    <string name="fgs_special_use_subtype">EasyTier virtual network transport</string>
+    <string name="fgs_special_use_subtype" translatable="false">EasyTier virtual network transport</string>
     <string name="error_vpn_establish_failed">Failed to establish EasyTier VPN</string>
 </resources>

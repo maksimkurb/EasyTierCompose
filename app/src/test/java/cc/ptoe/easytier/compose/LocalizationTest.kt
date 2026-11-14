@@ -23,9 +23,10 @@ class LocalizationTest {
     private val resDir: File = listOf("src/main/res", "app/src/main/res")
         .map(::File).first { it.isDirectory }
 
-    /** Locales that must be 100% translated. Chinese predates this check and falls back to English. */
+    /** Locales that must be 100% translated, with the plural quantities each language uses. */
     private val completeLocales = mapOf(
         "values-ru" to setOf("one", "few", "many", "other"),
+        "values-zh-rCN" to setOf("other"),
     )
 
     private val defaultQuantities = setOf("one", "other")

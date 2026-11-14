@@ -25,7 +25,7 @@ management, network orchestration and two ways of attaching the virtual network 
 - **Global overrides** — TUN device name, `no_tun` and SOCKS5 (port and listen address) shared by all profiles
 - **Hostname auto-fill** — falls back to the Android device name when a profile leaves it blank (same as the core's `get_hostname`)
 - **Coroutine orchestration** — `SupervisorJob + Mutex` serializes the runtime state machine and avoids races
-- **Localized** — English and Russian (plus a partial Chinese translation); per-app language on Android 13+
+- **Localized** — English and Russian (plus Chinese); per-app language on Android 13+
 
 ## Screenshots
 

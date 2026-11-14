@@ -86,9 +86,9 @@ registered in `app/build.gradle.kts`). Never commit a built `.so`; `app/src/main
 
 ## Localization
 
-Default strings are English (`values/strings.xml`); Russian is `values-ru/strings.xml` (complete); Chinese `values-zh-rCN`
-is partial and falls back to English. Add every new string to `values/` and `values-ru/`. `LocalizationTest` fails when a key,
-a plural quantity (`one/few/many/other` for ru) or a format placeholder is missing or mismatched, or when
+Default strings are English (`values/strings.xml`); Russian is `values-ru/strings.xml` and Chinese `values-zh-rCN/strings.xml` (both complete).
+Add every new string to all three files (strings referenced from the manifest, e.g. `fgs_special_use_subtype`, must be `translatable="false"`). `LocalizationTest` fails when a key,
+a plural quantity (`one/few/many/other` for ru, `other` for zh) or a format placeholder is missing or mismatched, or when
 `res/xml/locales_config.xml` disagrees with the `values-*` directories. Russian terminology: peer = «узел», subnet = «подсеть»,
 profile = «профиль», relay = «ретранслятор», NAT traversal = «обход NAT»; protocol names, config keys and the product name stay untranslated.
 When adding a language update `locales_config.xml` and `androidResources.localeFilters` in `app/build.gradle.kts`.

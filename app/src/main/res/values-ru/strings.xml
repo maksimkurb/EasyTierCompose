@@ -465,6 +465,5 @@
     <string name="vpn_notification_title">EasyTier VPN активен</string>
     <string name="vpn_notification_text">EasyTier направляет трафик через Android VPN</string>
     <string name="vpn_notification_channel">EasyTier VPN</string>
-    <string name="fgs_special_use_subtype">Транспорт виртуальной сети EasyTier</string>
     <string name="error_vpn_establish_failed">Не удалось установить VPN-соединение EasyTier</string>
 </resources>

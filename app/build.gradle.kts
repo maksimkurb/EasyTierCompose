@@ -169,6 +169,10 @@ android {
         // Languages shipped in the APK (keep in sync with res/xml/locales_config.xml).
         localeFilters += listOf("en", "ru", "zh-rCN")
     }
+    lint {
+        // Pre-existing findings are recorded in the baseline; lint fails only on new issues.
+        baseline = file("lint-baseline.xml")
+    }
     dependenciesInfo {
         // Google-signed dependency metadata blob; not reproducible and not wanted in F-Droid builds.
         includeInApk = false
