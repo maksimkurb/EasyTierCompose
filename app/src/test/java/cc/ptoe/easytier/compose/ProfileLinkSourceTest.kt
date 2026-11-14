@@ -62,6 +62,14 @@ class ProfileLinkSourceTest {
     }
 
     @Test
+    fun `a successful import stamps the sync time`() {
+        val link = shareLink("""{"network_name":"mesh","network_secret":"secret"}""")
+        val result = ProfileLinkSource.load(link, now = { 42L }, fetch = { _: URI -> error("must not fetch a share link") })
+
+        assertEquals(42L, (result as ProfileLinkResult.Success).profile.sourceSyncedAt)
+    }
+
+    @Test
     fun `config server urls are rejected without a network request`() {
         var fetched = false
         val result = ProfileLinkSource.load("udp://host:22020/user") { _: URI ->
@@ -118,6 +126,8 @@ class ProfileLinkSourceTest {
             instanceRecvBpsLimit = 2,
             socketMark = 99,
             sourceUrl = "https://example.com/config.toml",
+            sourceSyncedAt = 123L,
+            autoRefresh = false,
         )
         val imported = existing.copy(
             id = "other-id",
@@ -137,6 +147,8 @@ class ProfileLinkSourceTest {
             instanceRecvBpsLimit = 20,
             socketMark = null,
             sourceUrl = null,
+            sourceSyncedAt = 456L,
+            autoRefresh = true,
         )
 
         val merged = existing.withImportedConfig(imported)
@@ -158,6 +170,8 @@ class ProfileLinkSourceTest {
         assertEquals(2L, merged.instanceRecvBpsLimit)
         assertEquals(99L, merged.socketMark)
         assertEquals("https://example.com/config.toml", merged.sourceUrl)
+        assertFalse(merged.autoRefresh)
+        assertEquals(456L, merged.sourceSyncedAt)
         assertNull(merged.hostname)
     }
 

@@ -170,9 +170,12 @@
 
     <string name="editor_disconnect_before_save">Отключитесь, прежде чем сохранять изменения этого профиля.</string>
     <string name="editor_source_title">Импортировано по ссылке</string>
-    <string name="editor_source_hint">Конфигурация перечитывается только по нажатию «Обновить». Автоматическая загрузка не выполняется.</string>
+    <string name="editor_source_hint">Конфигурация перечитывается по ссылке при подключении (если включено автообновление) или по нажатию «Обновить». Если источник недоступен, используется сохранённая копия.</string>
     <string name="editor_source_refresh">Обновить по ссылке</string>
     <string name="editor_source_refreshing">Обновление…</string>
+    <string name="editor_source_auto_refresh">Автообновление при подключении (раз в 30 мин)</string>
+    <string name="editor_source_last_synced">Последняя синхронизация: %1$s</string>
+    <string name="editor_source_never_synced">Последняя синхронизация: никогда</string>
     <string name="editor_general">Основное</string>
     <string name="editor_profile_name">Название профиля</string>
     <string name="editor_hostname">Имя хоста</string>

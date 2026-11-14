@@ -21,9 +21,10 @@ management, network orchestration and two ways of attaching the virtual network 
   Port Forwards / VPN Portal / Secure Mode / STUN & Whitelists / Flags — General / P2P / KCP / QUIC); the generated
   structured TOML is validated by the native `parseConfig`
 - **Configuration import** — import a TOML file, a TOML URL, or an EasyTier configuration share link
-  (`https://easytier.cn/comp_cfg?...`); imported profiles remember the source URL and can be re-synced manually from
-  the editor (never in the background). Web console *config-server* URLs (`udp://…`) are a runtime management
-  channel, not a configuration format: export a TOML from the console instead.
+  (`https://easytier.cn/comp_cfg?...`); imported profiles remember the source URL and are re-read automatically
+  before connecting when the saved copy is older than 30 minutes (can be switched off per profile), or on demand
+  from the editor. A failed refresh is silent: the saved configuration is used. Web console *config-server* URLs
+  (`udp://…`) are a runtime management channel, not a configuration format: export a TOML from the console instead.
 - **Magic DNS** — EasyTier's built-in DNS (`100.100.100.101`) in both TUN modes; `ROOT_TUN` additionally switches the system DNS through the root shell
 - **Peers screen** — runtime peers with virtual IP, latency, tunnel protocol, packet loss, NAT type and cost (direct / relay)
 - **Global overrides** — TUN device name, `no_tun` and SOCKS5 (port and listen address) shared by all profiles
@@ -149,8 +150,11 @@ Publishing (CI, signing keys, F-Droid repository): [docs/RELEASING.md](docs/RELE
 ## Privacy
 
 - The app contains **no telemetry, analytics, crash reporting, ads or Google services**.
-- The only network requests made by the app code itself are the user-triggered **Import from link** on the
-  Profiles screen and **Refresh from link** in a profile editor: an HTTP(S) `GET` of the URL you entered.
+- The only network requests made by the app code itself are for profile configuration links: the user-triggered
+  **Import from link** on the Profiles screen, **Refresh from link** in a profile editor, and — only when you
+  connect — an automatic re-read of that same HTTP(S) URL for profiles imported from a link that still have
+  *Auto-refresh* switched on (at most once per 30 minutes, only when the saved copy is stale). The request is a
+  plain HTTP(S) `GET` of exactly that URL; no other data is sent, and a failure falls back to the saved copy.
   EasyTier configuration share links are decoded locally and make no request.
 - The EasyTier core is a VPN: it talks to the peers you configure. In addition, to detect the NAT type and its public
   address (needed for NAT traversal / hole punching) it contacts **public STUN servers** by default, which see your public

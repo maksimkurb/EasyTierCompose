@@ -10,17 +10,21 @@ import java.nio.charset.Charset
 internal data class ConfigText(val text: String, val tooLarge: Boolean)
 
 internal const val MAX_CONFIG_BYTES = 1_048_576
+internal const val DEFAULT_CONFIG_TIMEOUT_MILLIS = 10_000
 
 /**
  * Fetches a configuration over HTTP(S) on the calling thread (callers run this
- * on Dispatchers.IO). Only the URL the user typed is requested: no automatic
- * retries, redirects are followed by [HttpURLConnection] itself, and the body
- * is capped at [MAX_CONFIG_BYTES].
+ * on Dispatchers.IO). Only the URL the profile carries is requested: no
+ * automatic retries, redirects are followed by [HttpURLConnection] itself, and
+ * the body is capped at [MAX_CONFIG_BYTES].
+ *
+ * [timeoutMillis] bounds both connect and read; the automatic pre-connect
+ * refresh uses a shorter value so Connect is not delayed when offline.
  */
-internal fun fetchConfigText(uri: URI): ConfigText {
+internal fun fetchConfigText(uri: URI, timeoutMillis: Int = DEFAULT_CONFIG_TIMEOUT_MILLIS): ConfigText {
     val connection = (uri.toURL().openConnection() as HttpURLConnection).apply {
-        connectTimeout = 10_000
-        readTimeout = 10_000
+        connectTimeout = timeoutMillis
+        readTimeout = timeoutMillis
     }
     return try {
         if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")

@@ -26,7 +26,7 @@ internal sealed interface ProfileLinkResult {
  *  - an EasyTier configuration share link (`https://easytier.cn/comp_cfg?...`),
  *    which is decoded entirely on-device and makes no network request;
  *  - a plain TOML configuration served over HTTP(S), fetched with
- *    [fetchConfigText] (explicit, user-triggered only).
+ *    [fetchConfigText] (a user import or an automatic refresh).
  *
  * Web console *config-server* URLs (`udp://host:22020/<user>`) are rejected
  * with a dedicated message: they are a runtime management channel, not a
@@ -36,8 +36,13 @@ internal object ProfileLinkSource {
     private val HTTP_SCHEMES = setOf("http", "https")
     private val CONFIG_SERVER_SCHEMES = setOf("udp", "tcp", "ws", "wss", "ring")
 
+    /**
+     * [now] stamps the success time into `sourceSyncedAt`; callers that do not
+     * care (or that need a fixed clock in tests) can inject it.
+     */
     internal fun load(
         input: String,
+        now: () -> Long = System::currentTimeMillis,
         fetch: (URI) -> ConfigText = ::fetchConfigText,
     ): ProfileLinkResult {
         val trimmed = input.trim()
@@ -47,7 +52,7 @@ internal object ProfileLinkSource {
 
         when (val share = EasyTierWebLink.parse(trimmed)) {
             is WebLinkResult.Success -> return ProfileLinkResult.Success(
-                share.profile.copy(sourceUrl = trimmed),
+                share.profile.copy(sourceUrl = trimmed, sourceSyncedAt = now()),
             )
 
             is WebLinkResult.Failure -> return ProfileLinkResult.Failure(share.message, share.messageRes)
@@ -88,7 +93,7 @@ internal object ProfileLinkSource {
 
         return when (val imported = TomlProfileImporter.import(config.text)) {
             is TomlImportResult.Success -> ProfileLinkResult.Success(
-                imported.profile.copy(sourceUrl = trimmed),
+                imported.profile.copy(sourceUrl = trimmed, sourceSyncedAt = now()),
             )
 
             is TomlImportResult.Failure -> ProfileLinkResult.Failure(imported.message, imported.messageRes)
@@ -100,6 +105,8 @@ internal object ProfileLinkSource {
  * Replaces the network configuration of this profile with [imported] while
  * keeping app/device-local choices that the remote source must not silently
  * change: the profile identity, its display name, TUN mode and engine options.
+ * `sourceSyncedAt` is intentionally taken from [imported]: it records when the
+ * configuration was read, not when it was applied.
  */
 fun EasyTierProfile.withImportedConfig(imported: EasyTierProfile): EasyTierProfile = imported.copy(
     id = id,
@@ -114,4 +121,5 @@ fun EasyTierProfile.withImportedConfig(imported: EasyTierProfile): EasyTierProfi
     instanceRecvBpsLimit = instanceRecvBpsLimit,
     socketMark = socketMark,
     sourceUrl = sourceUrl,
+    autoRefresh = autoRefresh,
 )

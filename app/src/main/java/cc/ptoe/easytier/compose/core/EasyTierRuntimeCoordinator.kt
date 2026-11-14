@@ -6,6 +6,7 @@ import android.util.Log
 import cc.ptoe.easytier.compose.data.EasyTierProfile
 import cc.ptoe.easytier.compose.R
 import cc.ptoe.easytier.compose.data.GlobalSettings
+import cc.ptoe.easytier.compose.data.ProfileRepository
 import cc.ptoe.easytier.compose.data.RuntimeState
 import cc.ptoe.easytier.compose.data.RuntimeStatus
 import cc.ptoe.easytier.compose.data.TunMode
@@ -26,6 +27,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -38,6 +41,9 @@ class EasyTierRuntimeCoordinator private constructor(
     private val mutex = Mutex()
     private val vpn = VpnTunTransport(context, permissionRequester)
     private val root = RootTunTransport(context)
+    // Shares the process-wide DataStore with the ViewModel/boot receiver; used
+    // to persist a profile refreshed from its import URL before a start.
+    private val profileRepository = ProfileRepository(context)
     private val mutableStatus = MutableStateFlow(RuntimeStatus.Stopped)
     val status: StateFlow<RuntimeStatus> = mutableStatus.asStateFlow()
     private var activeProfile: EasyTierProfile? = null
@@ -54,6 +60,9 @@ class EasyTierRuntimeCoordinator private constructor(
 
     companion object {
         private const val TAG = "EasyTierCoordinator"
+
+        /** Upper bound for a whole pre-connect refresh, including validation. */
+        private const val AUTO_REFRESH_BUDGET_MILLIS = 12_000L
 
         // Process-wide singleton: BootCompletedReceiver and MainActivity must share one
         // coordinator. Two instances would each run their own poll loops and transports
@@ -75,24 +84,94 @@ class EasyTierRuntimeCoordinator private constructor(
         }
     }
 
-    suspend fun start(profile: EasyTierProfile, globalSettings: GlobalSettings = GlobalSettings()): RuntimeStatus = mutex.withLock {
+    /**
+     * Starts [profile], which is also the single start path used by the
+     * ViewModel's Connect action and by [cc.ptoe.easytier.compose.boot.BootCompletedReceiver].
+     *
+     * A profile imported from a URL is first re-read when its stored copy is
+     * stale ([shouldAutoRefresh]); that happens outside the mutex so a dead or
+     * slow source cannot delay stop()/disconnect(). Any refresh failure is
+     * silent and the stored configuration is started as-is.
+     */
+    suspend fun start(profile: EasyTierProfile, globalSettings: GlobalSettings = GlobalSettings()): RuntimeStatus {
+        val refreshed = autoRefreshBeforeStart(profile, globalSettings)
+        return mutex.withLock { startLocked(refreshed, globalSettings) }
+    }
+
+    private suspend fun startLocked(profile: EasyTierProfile, globalSettings: GlobalSettings): RuntimeStatus {
         // Auto-fill hostname from the Android device name when the profile leaves it blank,
         // so peers see a recognizable identity without forcing the user to configure it.
         // Global overrides are merged on top afterwards; build/validate merge again
         // internally, which is idempotent.
         val effectiveProfile = globalSettings.mergeInto(profile.withDeviceHostnameIfBlank(context))
         val errors = ProfileValidator().validate(effectiveProfile, globalSettings)
-        if (errors.isNotEmpty()) return@withLock failure(effectiveProfile, errors.values.first().resolve(context))
+        if (errors.isNotEmpty()) return failure(effectiveProfile, errors.values.first().resolve(context))
         val toml = TomlConfigBuilder.build(effectiveProfile, globalSettings)
         stopLocked()
         activeProfile = effectiveProfile
         mutableStatus.value = RuntimeStatus(RuntimeState.STARTING, effectiveProfile.id, effectiveProfile.tunMode, null, null, null)
-        return@withLock when (effectiveProfile.tunMode) {
+        return when (effectiveProfile.tunMode) {
             // No TUN mode: run the EasyTier core with no TUN device at all, in
             // the app process. VpnService and RootTun are both skipped.
             TunMode.NO_TUN -> startNoTun(effectiveProfile, toml)
             TunMode.VPN_SERVICE -> startVpn(effectiveProfile, toml, globalSettings)
             TunMode.ROOT_TUN -> startRoot(effectiveProfile, toml, globalSettings)
+        }
+    }
+
+    /**
+     * Re-reads a stale URL-backed profile right before it is started and stores
+     * the result. Returns [profile] unchanged on every failure (offline, HTTP
+     * or parse error, config-server URL, invalid configuration), so a broken
+     * source can never overwrite the stored configuration.
+     */
+    private suspend fun autoRefreshBeforeStart(profile: EasyTierProfile, globalSettings: GlobalSettings): EasyTierProfile {
+        if (!shouldAutoRefresh(profile, System.currentTimeMillis())) return profile
+        val now = System.currentTimeMillis()
+        // The budget only covers a hung DNS/parse; the HTTP timeouts below are
+        // what normally bound a dead link. It is generous enough that a slow
+        // but successful fetch is still applied.
+        val result = withTimeoutOrNull(AUTO_REFRESH_BUDGET_MILLIS) {
+            withContext(Dispatchers.IO) {
+                autoRefreshProfile(
+                    profile = profile,
+                    nowMillis = now,
+                    load = { url ->
+                        ProfileLinkSource.load(url, fetch = { uri ->
+                            fetchConfigText(uri, AUTO_REFRESH_TIMEOUT_MILLIS.toInt())
+                        })
+                    },
+                    // Same validation a normal start performs, on the effective
+                    // profile (global overrides + hostname auto-fill).
+                    validate = { candidate ->
+                        ProfileValidator()
+                            .validate(globalSettings.mergeInto(candidate.withDeviceHostnameIfBlank(context)), globalSettings)
+                            .isEmpty()
+                    },
+                )
+            }
+        }
+        return when (result) {
+            null -> {
+                Log.w(TAG, "auto-refresh timed out for ${sourceHost(profile.sourceUrl.orEmpty())}")
+                profile
+            }
+
+            is AutoRefreshResult.Failure -> {
+                Log.w(TAG, "auto-refresh failed for ${result.host}: ${result.reason}")
+                profile
+            }
+
+            is AutoRefreshResult.Success -> {
+                val refreshed = result.profile
+                // A successful sync always moves sourceSyncedAt forward.
+                if (refreshed != profile) {
+                    runCatching { profileRepository.save(refreshed) }
+                        .onFailure { Log.w(TAG, "could not store refreshed profile: ${it.javaClass.simpleName}") }
+                }
+                Log.i(TAG, "auto-refreshed profile from ${sourceHost(profile.sourceUrl.orEmpty())}")
+                refreshed
+            }
         }
     }
 

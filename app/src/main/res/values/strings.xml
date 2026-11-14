@@ -159,9 +159,12 @@
 
     <string name="editor_disconnect_before_save">Disconnect before saving changes to this profile.</string>
     <string name="editor_source_title">Imported from link</string>
-    <string name="editor_source_hint">The configuration is re-read only when you tap Refresh. It is never fetched automatically.</string>
+    <string name="editor_source_hint">The configuration is re-read from the link when you connect (if auto-refresh is on) or when you tap Refresh. If the source is unavailable, the saved copy is used.</string>
     <string name="editor_source_refresh">Refresh from link</string>
     <string name="editor_source_refreshing">Refreshing…</string>
+    <string name="editor_source_auto_refresh">Auto-refresh on connect (every 30 min)</string>
+    <string name="editor_source_last_synced">Last synced: %1$s</string>
+    <string name="editor_source_never_synced">Last synced: never</string>
     <string name="editor_general">General</string>
     <string name="editor_profile_name">Profile name</string>
     <string name="editor_hostname">Hostname</string>
