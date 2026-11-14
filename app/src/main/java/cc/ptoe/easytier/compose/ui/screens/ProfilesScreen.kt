@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
@@ -69,9 +70,14 @@ import cc.ptoe.easytier.compose.core.ProfileLinkSource
 import cc.ptoe.easytier.compose.core.TomlConfigBuilder
 import cc.ptoe.easytier.compose.core.TomlImportResult
 import cc.ptoe.easytier.compose.core.TomlProfileImporter
+import cc.ptoe.easytier.compose.core.configServerHost
+import cc.ptoe.easytier.compose.core.configServerUrlMessage
+import cc.ptoe.easytier.compose.core.configServerUrlProblem
 import cc.ptoe.easytier.compose.core.readLimitedConfigText
+import cc.ptoe.easytier.compose.core.webCachedSummary
 import cc.ptoe.easytier.compose.data.EasyTierProfile
 import cc.ptoe.easytier.compose.data.RuntimeState
+import cc.ptoe.easytier.compose.data.isWebManaged
 import cc.ptoe.easytier.compose.ui.EasyTierUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -82,6 +88,7 @@ import kotlinx.coroutines.withContext
 internal fun ProfilesScreen(
     state: EasyTierUiState,
     add: () -> Unit,
+    addConfigServer: (String) -> Unit,
     importProfile: (EasyTierProfile) -> Unit,
     edit: (EasyTierProfile) -> Unit,
     select: (EasyTierProfile) -> Unit,
@@ -95,6 +102,9 @@ internal fun ProfilesScreen(
     var linkUrl by remember { mutableStateOf("") }
     var linkLoading by remember { mutableStateOf(false) }
     var linkError by remember { mutableStateOf<String?>(null) }
+    var showConfigServerDialog by remember { mutableStateOf(false) }
+    var configServerUrl by remember { mutableStateOf("") }
+    var configServerError by remember { mutableStateOf<String?>(null) }
     var importError by remember { mutableStateOf<String?>(null) }
     var pendingExport by remember { mutableStateOf<Pair<EasyTierProfile, String>?>(null) }
 
@@ -211,23 +221,38 @@ internal fun ProfilesScreen(
                                     }
                                 }
                                 Text(
-                                    text = stringResource(
-                                        R.string.profiles_network_summary,
-                                        profile.networkName,
-                                        pluralStringResource(R.plurals.peer_count, profile.peers.size, profile.peers.size),
-                                    ),
+                                    text = if (profile.isWebManaged) {
+                                        val cached = remember(profile.cachedToml) { webCachedSummary(profile.cachedToml) }
+                                        if (cached != null) {
+                                            stringResource(
+                                                R.string.profiles_web_summary_synced,
+                                                cached.networkName,
+                                                configServerHost(profile.configServerUrl),
+                                            )
+                                        } else {
+                                            stringResource(R.string.profiles_web_summary, configServerHost(profile.configServerUrl))
+                                        }
+                                    } else {
+                                        stringResource(
+                                            R.string.profiles_network_summary,
+                                            profile.networkName,
+                                            pluralStringResource(R.plurals.peer_count, profile.peers.size, profile.peers.size),
+                                        )
+                                    },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            IconButton(
-                                onClick = {
-                                    pendingExport = profile to TomlConfigBuilder.build(profile, state.globalSettings)
-                                    createDocument.launch(exportFileName(profile.name))
-                                },
-                                modifier = Modifier.semantics { contentDescription = exportDescription },
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = exportDescription)
+                            if (!profile.isWebManaged) {
+                                IconButton(
+                                    onClick = {
+                                        pendingExport = profile to TomlConfigBuilder.build(profile, state.globalSettings)
+                                        createDocument.launch(exportFileName(profile.name))
+                                    },
+                                    modifier = Modifier.semantics { contentDescription = exportDescription },
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = exportDescription)
+                                }
                             }
                             IconButton(onClick = { edit(profile) }) {
                                 Icon(Icons.Default.Edit, contentDescription = editDescription)
@@ -262,6 +287,13 @@ internal fun ProfilesScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     // Farthest action first; the column stacks upward from the FAB.
+                    FabMenuAction(stringResource(R.string.profiles_add_config_server), Icons.Default.Cloud) {
+                        selectAddAction {
+                            configServerUrl = ""
+                            configServerError = null
+                            showConfigServerDialog = true
+                        }
+                    }
                     FabMenuAction(stringResource(R.string.profiles_add_import_link), Icons.Default.Language) {
                         selectAddAction { showLinkDialog = true }
                     }
@@ -329,6 +361,28 @@ internal fun ProfilesScreen(
             error = linkError,
             onImport = { if (!linkLoading && linkUrl.isNotBlank()) fetchFromLink() },
             onDismiss = { if (!linkLoading) { showLinkDialog = false; linkError = null } },
+        )
+    }
+
+    if (showConfigServerDialog) {
+        ConfigServerDialog(
+            url = configServerUrl,
+            onUrlChange = {
+                configServerUrl = it
+                configServerError = null
+            },
+            error = configServerError,
+            onConfirm = {
+                when (val problem = configServerUrlProblem(configServerUrl)) {
+                    null -> {
+                        showConfigServerDialog = false
+                        addConfigServer(configServerUrl.trim())
+                    }
+
+                    else -> configServerError = context.getString(configServerUrlMessage(problem))
+                }
+            },
+            onDismiss = { showConfigServerDialog = false },
         )
     }
 
@@ -410,3 +464,49 @@ private fun LinkImportDialog(
 
 private fun exportFileName(name: String): String =
     "${name.trim().ifBlank { "profile" }.replace(Regex("""[/\\:*?"<>|]"""), "_")}.toml"
+
+/**
+ * Asks for a config-server endpoint. The value is validated with the same rules
+ * as the core's `ConfigServerEndpoint::parse` before a profile is created.
+ */
+@Composable
+private fun ConfigServerDialog(
+    url: String,
+    onUrlChange: (String) -> Unit,
+    error: String?,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.profiles_add_config_server)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    stringResource(R.string.profiles_config_server_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = onUrlChange,
+                    label = { Text(stringResource(R.string.profiles_config_server_url_label)) },
+                    placeholder = { Text(stringResource(R.string.profiles_config_server_url_example)) },
+                    singleLine = true,
+                    isError = error != null,
+                    supportingText = error?.let { { Text(it) } },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onConfirm() }),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = url.isNotBlank()) {
+                Text(stringResource(R.string.profiles_config_server_continue))
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
+}

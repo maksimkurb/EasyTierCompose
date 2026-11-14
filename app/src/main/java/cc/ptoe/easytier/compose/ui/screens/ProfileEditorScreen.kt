@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
@@ -40,11 +41,13 @@ import cc.ptoe.easytier.compose.core.ProfileLinkResult
 import cc.ptoe.easytier.compose.core.ProfileLinkSource
 import cc.ptoe.easytier.compose.core.ValidationMessage
 import cc.ptoe.easytier.compose.core.resolve
+import cc.ptoe.easytier.compose.core.webCachedSummary
 import cc.ptoe.easytier.compose.core.withImportedConfig
 import cc.ptoe.easytier.compose.data.CompressionAlgo
 import cc.ptoe.easytier.compose.data.EasyTierProfile
 import cc.ptoe.easytier.compose.data.EncryptionAlgorithm
 import cc.ptoe.easytier.compose.data.VpnPortal
+import cc.ptoe.easytier.compose.data.isWebManaged
 import cc.ptoe.easytier.compose.ui.components.AclField
 import cc.ptoe.easytier.compose.ui.components.ChoiceOption
 import cc.ptoe.easytier.compose.ui.components.ChoiceRow
@@ -66,7 +69,10 @@ internal fun ProfileEditorScreen(
     profile: EasyTierProfile,
     errors: Map<String, ValidationMessage>,
     running: Boolean,
+    webSyncRunning: Boolean,
+    webSyncError: ValidationMessage?,
     update: ((EasyTierProfile) -> EasyTierProfile) -> Unit,
+    onSyncWebConfig: () -> Unit,
     save: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -158,6 +164,107 @@ internal fun ProfileEditorScreen(
                     }
                 }
             }
+        }
+
+        if (profile.isWebManaged) {
+            item {
+                SectionCard(title = stringResource(R.string.editor_general), icon = Icons.Default.Info) {
+                    FormField(stringResource(R.string.editor_profile_name), profile.name, error("name")) { v -> update { it.copy(name = v) } }
+                    FormField(stringResource(R.string.editor_hostname), profile.hostname.orEmpty(), null) { v -> update { it.copy(hostname = v.ifBlank { null }) } }
+                }
+            }
+            item {
+                SectionCard(title = stringResource(R.string.editor_config_server), icon = Icons.Default.Cloud) {
+                    FormField(
+                        label = stringResource(R.string.editor_config_server_url),
+                        value = profile.configServerUrl.orEmpty(),
+                        error = error("configServerUrl"),
+                    ) { v ->
+                        // A different endpoint invalidates the cached configuration:
+                        // it describes a network owned by the previous server.
+                        update { it.copy(configServerUrl = v.ifBlank { null }, cachedToml = null, cachedAt = null) }
+                    }
+                    Text(
+                        stringResource(R.string.editor_config_server_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        enabled = !running && !webSyncRunning && !profile.configServerUrl.isNullOrBlank(),
+                        onClick = onSyncWebConfig,
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (webSyncRunning) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Text(stringResource(R.string.editor_config_server_syncing))
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = null)
+                                Text(stringResource(R.string.editor_config_server_sync))
+                            }
+                        }
+                    }
+                    webSyncError?.let { message ->
+                        Text(
+                            text = message.resolve(context),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    Text(
+                        text = profile.cachedAt?.let { syncedAt ->
+                            stringResource(R.string.editor_config_server_last_sync, formatSyncedAt(context, syncedAt))
+                        } ?: stringResource(R.string.editor_config_server_never_synced),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    val summary = remember(profile.cachedToml) { webCachedSummary(profile.cachedToml) }
+                    if (summary != null) {
+                        Text(
+                            text = stringResource(R.string.editor_config_server_cached_network, summary.networkName),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = if (summary.dhcp) {
+                                stringResource(R.string.editor_config_server_cached_dhcp)
+                            } else {
+                                stringResource(R.string.editor_config_server_cached_ip, summary.virtualIpv4.orEmpty())
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            stringResource(R.string.editor_config_server_no_cache),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    error("cachedConfig")?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    error("tunMode")?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+            item {
+                errors["form"]?.let { message ->
+                    Text(message.resolve(context), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            return@LazyColumn
         }
 
         item {

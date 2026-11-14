@@ -329,6 +329,10 @@ fun EasyTierApp(
                             Destination.Profiles -> ProfilesScreen(
                                 state = state,
                                 add = { viewModel.beginCreate(); destination = Destination.Editor },
+                                addConfigServer = { url ->
+                                    viewModel.beginCreateWebManaged(url)
+                                    destination = Destination.Editor
+                                },
                                 importProfile = { imported -> viewModel.beginEdit(imported); destination = Destination.Editor },
                                 edit = { viewModel.beginEdit(it); destination = Destination.Editor },
                                 select = { viewModel.selectProfile(it.id) },
@@ -377,7 +381,10 @@ fun EasyTierApp(
                                 profile = draft,
                                 errors = state.fieldErrors,
                                 running = draftRunning,
+                                webSyncRunning = state.webSyncRunning,
+                                webSyncError = state.webSyncError,
                                 update = viewModel::updateDraft,
+                                onSyncWebConfig = viewModel::syncWebConfig,
                                 save = viewModel::saveDraft,
                             )
                         }

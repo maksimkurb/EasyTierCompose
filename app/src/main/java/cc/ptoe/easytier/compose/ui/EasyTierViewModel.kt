@@ -7,9 +7,12 @@ import cc.ptoe.easytier.compose.R
 import cc.ptoe.easytier.compose.core.EasyTierRuntimeCoordinator
 import cc.ptoe.easytier.compose.core.ProfileValidator
 import cc.ptoe.easytier.compose.core.ValidationMessage
+import cc.ptoe.easytier.compose.core.WebSyncResult
+import cc.ptoe.easytier.compose.core.configServerHost
 import cc.ptoe.easytier.compose.data.EasyTierProfile
 import cc.ptoe.easytier.compose.data.GlobalSettings
 import cc.ptoe.easytier.compose.data.GlobalSettingsRepository
+import cc.ptoe.easytier.compose.data.ProfileKind
 import cc.ptoe.easytier.compose.data.ProfileRepository
 import cc.ptoe.easytier.compose.data.RuntimeState
 import cc.ptoe.easytier.compose.data.RuntimeStatus
@@ -29,6 +32,8 @@ data class EasyTierUiState(
     val runtime: RuntimeStatus = RuntimeStatus.Stopped,
     val fieldErrors: Map<String, ValidationMessage> = emptyMap(),
     val globalSettings: GlobalSettings = GlobalSettings(),
+    val webSyncRunning: Boolean = false,
+    val webSyncError: ValidationMessage? = null,
 )
 
 class EasyTierViewModel(
@@ -40,6 +45,9 @@ class EasyTierViewModel(
     private val draft = MutableStateFlow<EasyTierProfile?>(null)
     private val errors = MutableStateFlow<Map<String, ValidationMessage>>(emptyMap())
     private val globalSettings = MutableStateFlow(GlobalSettings())
+    private val webSyncRunning = MutableStateFlow(false)
+    private val webSyncError = MutableStateFlow<ValidationMessage?>(null)
+    private val webSync = combine(webSyncRunning, webSyncError) { running, error -> running to error }
     private data class ProfileInputs(
         val profiles: List<EasyTierProfile>,
         val persistedSelection: String?,
@@ -61,7 +69,8 @@ class EasyTierViewModel(
         coordinator.status,
         errors,
         globalSettings,
-    ) { inputs, runtime, fieldErrors, settings ->
+        webSync,
+    ) { inputs, runtime, fieldErrors, settings, (syncRunning, syncError) ->
         EasyTierUiState(
             profiles = inputs.profiles,
             selectedProfileId = inputs.localSelection
@@ -71,6 +80,8 @@ class EasyTierViewModel(
             runtime = runtime,
             fieldErrors = fieldErrors,
             globalSettings = settings,
+            webSyncRunning = syncRunning,
+            webSyncError = syncError,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EasyTierUiState())
 
@@ -98,10 +109,66 @@ class EasyTierViewModel(
     }
 
     fun selectProfile(id: String?) = viewModelScope.launch { selectedId.value = id; repository.select(id) }
-    fun beginCreate() { draft.value = repository.newProfile(); errors.value = emptyMap() }
-    fun beginEdit(profile: EasyTierProfile) { draft.value = profile; errors.value = emptyMap() }
-    fun discardDraft() { draft.value = null; errors.value = emptyMap() }
+    fun beginCreate() {
+        draft.value = repository.newProfile()
+        errors.value = emptyMap()
+        webSyncError.value = null
+    }
+
+    /** Creates a web-managed profile draft from a config-server endpoint. */
+    fun beginCreateWebManaged(url: String) {
+        val host = configServerHost(url)
+        draft.value = repository.newProfile().copy(
+            kind = ProfileKind.WEB_MANAGED,
+            name = host,
+            configServerUrl = url.trim(),
+        )
+        errors.value = emptyMap()
+        webSyncError.value = null
+    }
+
+    fun beginEdit(profile: EasyTierProfile) {
+        draft.value = profile
+        errors.value = emptyMap()
+        webSyncError.value = null
+    }
+
+    fun discardDraft() {
+        draft.value = null
+        errors.value = emptyMap()
+        webSyncError.value = null
+    }
     fun updateDraft(transform: (EasyTierProfile) -> EasyTierProfile) { draft.value = draft.value?.let(transform) }
+
+    /**
+     * "Sync now" in the config-server profile editor: performs one bounded sync
+     * and stores the cache in the draft. An already-saved copy is updated only
+     * when it still points at the same endpoint, so an edited URL never pairs a
+     * stored profile with a cache from a different server.
+     */
+    fun syncWebConfig() = viewModelScope.launch {
+        val profile = draft.value ?: return@launch
+        if (webSyncRunning.value) return@launch
+        webSyncRunning.value = true
+        webSyncError.value = null
+        val result = coordinator.syncWebManagedConfig(profile)
+        webSyncRunning.value = false
+        when (result) {
+            is WebSyncResult.Success -> {
+                val cached = profile.copy(cachedToml = result.toml, cachedAt = result.syncedAt)
+                draft.value = draft.value?.takeIf { it.id == cached.id }?.copy(
+                    cachedToml = cached.cachedToml,
+                    cachedAt = cached.cachedAt,
+                )
+                val stored = state.value.profiles.firstOrNull { it.id == cached.id }
+                if (stored != null && stored.configServerUrl?.trim() == profile.configServerUrl?.trim()) {
+                    repository.save(stored.copy(cachedToml = result.toml, cachedAt = result.syncedAt))
+                }
+            }
+
+            is WebSyncResult.Failure -> webSyncError.value = ValidationMessage.Resource(result.messageRes)
+        }
+    }
 
     fun saveDraft() = viewModelScope.launch {
         val value = draft.value ?: return@launch
@@ -126,6 +193,9 @@ class EasyTierViewModel(
     fun updateTunMode(mode: TunMode) = viewModelScope.launch {
         val profile = selectedProfile() ?: return@launch
         if (state.value.runtime.state in setOf(RuntimeState.STARTING, RuntimeState.RUNNING)) return@launch
+        // The core runs the config-server client in the app process; ROOT_TUN
+        // executes EasyTier in the root daemon, which the client cannot manage.
+        if (profile.kind == ProfileKind.WEB_MANAGED && mode == TunMode.ROOT_TUN) return@launch
         val updated = profile.copy(tunMode = mode)
         repository.save(updated)
         draft.value = draft.value?.takeIf { it.id == updated.id }?.copy(tunMode = mode)

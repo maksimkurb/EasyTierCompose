@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import cc.ptoe.easytier.compose.BuildConfig
 import cc.ptoe.easytier.compose.R
+import cc.ptoe.easytier.compose.data.ProfileKind
 import cc.ptoe.easytier.compose.data.RuntimeState
 import cc.ptoe.easytier.compose.data.TunMode
 import cc.ptoe.easytier.compose.ui.EasyTierUiState
@@ -78,11 +79,16 @@ internal fun SettingsScreen(
                     ChoiceRow(
                         label = stringResource(R.string.settings_tun_mode),
                         value = tunMode.name,
-                        options = listOf(
-                            ChoiceOption(TunMode.NO_TUN.name, stringResource(R.string.settings_tun_no_tun)),
-                            ChoiceOption(TunMode.VPN_SERVICE.name, stringResource(R.string.settings_tun_vpn_service)),
-                            ChoiceOption(TunMode.ROOT_TUN.name, stringResource(R.string.settings_tun_root)),
-                        ),
+                        options = buildList {
+                            add(ChoiceOption(TunMode.NO_TUN.name, stringResource(R.string.settings_tun_no_tun)))
+                            add(ChoiceOption(TunMode.VPN_SERVICE.name, stringResource(R.string.settings_tun_vpn_service)))
+                            // Config-server sessions run in the app process; Root
+                            // mode runs EasyTier in the root daemon, which the
+                            // config-server client cannot manage.
+                            if (profile?.kind != ProfileKind.WEB_MANAGED) {
+                                add(ChoiceOption(TunMode.ROOT_TUN.name, stringResource(R.string.settings_tun_root)))
+                            }
+                        },
                         onChange = { value -> TunMode.entries.firstOrNull { it.name == value }?.let(onTunMode) },
                     )
                     SwitchRow(

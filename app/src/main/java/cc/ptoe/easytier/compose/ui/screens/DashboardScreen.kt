@@ -3,6 +3,7 @@ package cc.ptoe.easytier.compose.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.text.format.DateUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,10 +18,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Warning
@@ -45,16 +48,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import cc.ptoe.easytier.compose.core.configServerHost
 import cc.ptoe.easytier.compose.core.toV2rayShareLink
+import cc.ptoe.easytier.compose.core.webCachedSummary
 import cc.ptoe.easytier.compose.R
+import cc.ptoe.easytier.compose.data.EasyTierProfile
 import cc.ptoe.easytier.compose.data.RuntimeState
 import cc.ptoe.easytier.compose.data.RuntimeStatus
+import cc.ptoe.easytier.compose.data.WebConfigOrigin
+import cc.ptoe.easytier.compose.data.WebServerState
+import cc.ptoe.easytier.compose.data.WebSessionStatus
 import cc.ptoe.easytier.compose.data.WireGuardPortalInfo
+import cc.ptoe.easytier.compose.data.isWebManaged
 import cc.ptoe.easytier.compose.ui.EasyTierUiState
 import cc.ptoe.easytier.compose.ui.components.SettingsGroup
 import kotlinx.coroutines.delay
@@ -98,12 +109,51 @@ internal fun DashboardScreen(
 
         item {
             StatusDetailsGroup(
-                networkName = profile?.networkName,
+                networkName = profile?.let { p ->
+                    if (p.isWebManaged) {
+                        remember(p.cachedToml) { webCachedSummary(p.cachedToml) }?.networkName
+                    } else {
+                        p.networkName
+                    }
+                },
                 virtualIpv4 = state.runtime.virtualIpv4,
                 hostname = state.runtime.hostname,
                 natType = state.runtime.natType,
                 statusState = state.runtime.state,
             )
+        }
+
+        if (profile?.isWebManaged == true || state.runtime.web != null) {
+            item {
+                WebConfigStatusGroup(
+                    web = state.runtime.web,
+                    profile = profile,
+                    active = active,
+                )
+            }
+            val web = state.runtime.web
+            if (active && web?.origin == WebConfigOrigin.CACHED) {
+                item {
+                    CachedConfigNotice(
+                        cachedAt = web.lastSyncedAt ?: profile?.cachedAt,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            if (active && (web?.extraNetworks ?: 0) > 0) {
+                item {
+                    Text(
+                        text = pluralStringResource(
+                            R.plurals.web_extra_networks,
+                            web?.extraNetworks ?: 0,
+                            web?.extraNetworks ?: 0,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
+            }
         }
 
         if (profile?.vpnPortal != null && active) {
@@ -300,8 +350,7 @@ private fun StatusDetailRow(
     icon: ImageVector,
     title: String,
     value: String?,
-) {
-    Row(
+) {    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 16.dp),
@@ -327,6 +376,95 @@ private fun StatusDetailRow(
         )
     }
 }
+
+/**
+ * Config-server state of a web-managed profile: server connection, whether the
+ * running configuration is live or cached, and the last successful sync time.
+ */
+@Composable
+private fun WebConfigStatusGroup(
+    web: WebSessionStatus?,
+    profile: EasyTierProfile?,
+    active: Boolean,
+) {
+    val context = LocalContext.current
+    val serverText = when (web?.serverState) {
+        WebServerState.CONNECTED -> stringResource(R.string.web_server_connected)
+        WebServerState.CONNECTING -> stringResource(R.string.web_server_connecting)
+        WebServerState.DISCONNECTED, null -> stringResource(R.string.web_server_disconnected)
+    }
+    val originText = when {
+        web?.origin == WebConfigOrigin.LIVE -> stringResource(R.string.web_origin_live)
+        web?.origin == WebConfigOrigin.CACHED || profile?.cachedToml != null -> stringResource(R.string.web_origin_cached)
+        else -> null
+    }
+    val syncedAt = web?.lastSyncedAt ?: profile?.cachedAt
+    SettingsGroup {
+        StatusDetailRow(
+            icon = Icons.Default.Cloud,
+            title = stringResource(R.string.dashboard_config_server),
+            value = configServerHost(profile?.configServerUrl),
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        StatusDetailRow(
+            icon = Icons.Default.Refresh,
+            title = stringResource(R.string.dashboard_web_server),
+            value = if (active) serverText else stringResource(R.string.web_server_disconnected),
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        StatusDetailRow(
+            icon = Icons.Default.Info,
+            title = stringResource(R.string.dashboard_web_configuration),
+            value = originText,
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        StatusDetailRow(
+            icon = Icons.Default.Check,
+            title = stringResource(R.string.dashboard_web_last_sync),
+            value = syncedAt?.let { formatWebSyncTime(context, it) },
+        )
+    }
+}
+
+/** Non-blocking notice shown while a cached configuration is in use. */
+@Composable
+private fun CachedConfigNotice(cachedAt: Long?, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    Surface(
+        modifier = modifier,
+        shape = AlertDialogDefaults.shape,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = AlertDialogDefaults.TonalElevation,
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(24.dp),
+            )
+            Text(
+                text = cachedAt?.let {
+                    stringResource(R.string.web_cached_notice, formatWebSyncTime(context, it))
+                } ?: stringResource(R.string.web_cached_notice_unknown),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
+    }
+}
+
+/** Localized date and time of a config-server sync (device locale/zone). */
+private fun formatWebSyncTime(context: Context, millis: Long): String =
+    DateUtils.formatDateTime(
+        context,
+        millis,
+        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH,
+    )
 
 /**
  * Shows the WireGuard portal credentials rendered by EasyTier Core
