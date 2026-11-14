@@ -129,7 +129,9 @@ Verified against `EasyTier-Core` @ `81487c3`:
   1. Connect waits up to `WEB_FIRST_CONFIG_TIMEOUT_MILLIS = 12s` for the first applied config. Live → attach the TUN
      to the core-managed instance and poll `collectNetworkInfos(instance_name)`.
   2. Otherwise the cached TOML is replayed as an ordinary local instance (`replayWebConfig`: imported from the
-     cached TOML, `id = profile.id`, the profile's TUN mode and hostname, global overrides applied). The client is
+     cached TOML, `id = profile.id`, the profile's TUN mode and hostname, global overrides applied; fidelity is
+     bounded by `TomlProfileImporter`/`TomlConfigBuilder`, so fields the app model does not carry, e.g.
+     `peer_public_key`, `netns` or `source`, are not round-tripped). The client is
      **kept running**: the core retries in the background, and when it eventually delivers a config the session is
      promoted to live (`vpn.startManaged` reattaches the TUN, then `retainNetworkInstance(arrayOf(primary))` drops the
      cached instance). No WorkManager, timers or extra services.
@@ -148,6 +150,9 @@ Verified against `EasyTier-Core` @ `81487c3`:
 * One server can deliver several networks; the app tunnels the **first applied instance only** and shows a notice for
   the others. Promotion keeps only that instance (`retainNetworkInstance`), so extra managed instances may be
   restarted by the server later.
+* A `no_tun = true` flag inside a server-delivered config is not re-interpreted by the app: the profile's TUN mode
+  decides whether a `VpnService` is established, while the core would leave the attached fd unused. Keep `no_tun`
+  off for configs used by this app.
 * The instance name the server assigns is used for `setTunFd`/`collectNetworkInfos`; a delivered config without a
   usable `[network_identity].network_name` cannot be imported, so it is neither cached nor tunneled (the client
   still runs and the session stays on the previous cache).
