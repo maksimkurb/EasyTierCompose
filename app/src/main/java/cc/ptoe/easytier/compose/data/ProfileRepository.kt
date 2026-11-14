@@ -17,6 +17,7 @@ class ProfileRepository(private val context: Context) {
     private val profilesKey = stringPreferencesKey("profiles_v1")
     private val corruptProfilesKey = stringPreferencesKey("profiles_v1_corrupt")
     private val selectedProfileKey = stringPreferencesKey("selected_profile_id")
+    private val machineIdKey = stringPreferencesKey("config_server_machine_id")
     private val json = Json { ignoreUnknownKeys = true }
 
     val profiles: Flow<List<EasyTierProfile>> = context.easyTierProfilesDataStore.data.map { preferences ->
@@ -72,6 +73,39 @@ class ProfileRepository(private val context: Context) {
             preferences.remove(profilesKey)
             preferences.remove(selectedProfileKey)
         }
+    }
+
+    /**
+     * Stable per-install identifier the config server uses to recognise this
+     * device. Created on first use and kept across "Reset all profiles".
+     */
+    suspend fun machineId(): String {
+        val preferences = context.easyTierProfilesDataStore.edit { mutable ->
+            if (mutable[machineIdKey].isNullOrBlank()) mutable[machineIdKey] = UUID.randomUUID().toString()
+        }
+        return preferences[machineIdKey] ?: UUID.randomUUID().toString()
+    }
+
+    /**
+     * Stores a configuration delivered by the config server in the profile's
+     * cache. Only the cache fields are touched, so a concurrent edit of other
+     * fields is preserved. Returns the updated stored profile, or null when the
+     * profile no longer exists or is not web-managed.
+     */
+    suspend fun saveWebCache(profileId: String, toml: String, syncedAt: Long): EasyTierProfile? {
+        var updated: EasyTierProfile? = null
+        context.easyTierProfilesDataStore.edit { preferences ->
+            val existing = decodeProfiles(preferences[profilesKey])
+            val index = existing.indexOfFirst { it.id == profileId }
+            if (index < 0) return@edit
+            val profile = existing[index]
+            if (profile.kind != ProfileKind.WEB_MANAGED) return@edit
+            val cached = profile.copy(cachedToml = toml, cachedAt = syncedAt)
+            val list = existing.toMutableList().also { it[index] = cached }
+            preferences[profilesKey] = json.encodeToString(ListSerializer(EasyTierProfile.serializer()), list)
+            updated = cached
+        }
+        return updated
     }
 
     private fun decodeProfiles(raw: String?): List<EasyTierProfile> = raw?.let {

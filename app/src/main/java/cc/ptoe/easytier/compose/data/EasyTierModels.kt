@@ -9,6 +9,35 @@ enum class TunMode {
     ROOT_TUN,
 }
 
+/**
+ * How a profile's configuration is obtained.
+ *
+ * [STATIC] profiles are configured on the device. [WEB_MANAGED] profiles name an
+ * EasyTier config server; the core's web client receives the network
+ * configuration from it and (when the server is unreachable) the last received
+ * configuration is replayed from the local cache.
+ */
+@Serializable
+enum class ProfileKind {
+    STATIC,
+    WEB_MANAGED,
+}
+
+/** Whether the running configuration came from the config server or from its cache. */
+@Serializable
+enum class WebConfigOrigin {
+    LIVE,
+    CACHED,
+}
+
+/** Connection state of the core's config-server client. */
+@Serializable
+enum class WebServerState {
+    CONNECTING,
+    CONNECTED,
+    DISCONNECTED,
+}
+
 @Serializable
 enum class CompressionAlgo {
     None,
@@ -292,7 +321,26 @@ data class EasyTierProfile(
      * [sourceSyncedAt] is older than 30 minutes. Device-local setting.
      */
     val autoRefresh: Boolean = true,
+    /**
+     * How this profile is configured: on-device ([ProfileKind.STATIC]) or by an
+     * EasyTier config server ([ProfileKind.WEB_MANAGED]).
+     */
+    val kind: ProfileKind = ProfileKind.STATIC,
+    /** Config-server endpoint, e.g. `udp://host:22020/user` (web-managed only). */
+    val configServerUrl: String? = null,
+    /**
+     * Raw TOML most recently delivered by the config server. Replayed as an
+     * ordinary local configuration when the server cannot be reached. Contains
+     * network secrets, so it is only ever written to the app's private store.
+     */
+    val cachedToml: String? = null,
+    /** Epoch millis of the last successful config-server sync. */
+    val cachedAt: Long? = null,
 )
+
+/** True when the profile's network configuration is delivered by a config server. */
+val EasyTierProfile.isWebManaged: Boolean
+    get() = kind == ProfileKind.WEB_MANAGED
 
 /**
  * Global overrides applied on top of every profile.
@@ -492,6 +540,22 @@ data class WireGuardPortalInfo(
     val connectedClients: List<String> = emptyList(),
 )
 
+/**
+ * Config-server state of a running web-managed session, surfaced on the dashboard.
+ *
+ * [origin] is null before the first configuration was applied; afterwards it says
+ * whether the running instance uses the configuration delivered by the server or
+ * the cached one. [lastSyncedAt] is the time of the most recent successful sync
+ * (the cache timestamp while [origin] is [WebConfigOrigin.CACHED]).
+ */
+data class WebSessionStatus(
+    val serverState: WebServerState,
+    val origin: WebConfigOrigin?,
+    val lastSyncedAt: Long?,
+    /** Networks the server delivers beyond the one this device tunnels. */
+    val extraNetworks: Int = 0,
+)
+
 data class RuntimeStatus(
     val state: RuntimeState,
     val profileId: String?,
@@ -503,6 +567,8 @@ data class RuntimeStatus(
     val hostname: String? = null,
     val natType: String? = null,
     val wireguardPortal: WireGuardPortalInfo? = null,
+    /** Set only for web-managed sessions. */
+    val web: WebSessionStatus? = null,
 ) {
     companion object {
         val Stopped = RuntimeStatus(RuntimeState.STOPPED, null, null, null, null, null)
