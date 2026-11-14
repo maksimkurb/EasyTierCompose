@@ -1,5 +1,6 @@
 package cc.ptoe.easytier.compose.ui.screens
 
+import android.text.format.DateUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -103,6 +104,18 @@ internal fun ProfileEditorScreen(
                     )
                     Text(
                         text = stringResource(R.string.editor_source_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SwitchRow(
+                        label = stringResource(R.string.editor_source_auto_refresh),
+                        checked = profile.autoRefresh,
+                        onChange = { enabled -> update { it.copy(autoRefresh = enabled) } },
+                    )
+                    Text(
+                        text = profile.sourceSyncedAt?.let { syncedAt ->
+                            stringResource(R.string.editor_source_last_synced, formatSyncedAt(context, syncedAt))
+                        } ?: stringResource(R.string.editor_source_never_synced),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -476,3 +489,11 @@ internal fun ProfileEditorScreen(
 /** Share links can be very long; keep the origin visible without a wall of text. */
 private fun displaySourceUrl(url: String): String =
     if (url.length <= 160) url else url.take(157) + "…"
+
+/** Localized date and time of the last successful sync (device locale/zone). */
+private fun formatSyncedAt(context: android.content.Context, millis: Long): String =
+    DateUtils.formatDateTime(
+        context,
+        millis,
+        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH,
+    )

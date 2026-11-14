@@ -157,9 +157,12 @@
 
     <string name="editor_disconnect_before_save">保存此配置文件的更改前请先断开连接。</string>
     <string name="editor_source_title">从链接导入</string>
-    <string name="editor_source_hint">仅在点击“刷新”时重新读取配置，不会自动获取。</string>
+    <string name="editor_source_hint">连接时（若开启自动刷新）或点击“刷新”时会重新读取链接配置；如果来源不可用，则使用已保存的配置。</string>
     <string name="editor_source_refresh">从链接刷新</string>
     <string name="editor_source_refreshing">正在刷新…</string>
+    <string name="editor_source_auto_refresh">连接时自动刷新（每 30 分钟）</string>
+    <string name="editor_source_last_synced">上次同步：%1$s</string>
+    <string name="editor_source_never_synced">上次同步：从未</string>
     <string name="editor_general">常规</string>
     <string name="editor_profile_name">配置文件名称</string>
     <string name="editor_hostname">主机名</string>
