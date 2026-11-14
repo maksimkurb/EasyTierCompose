@@ -78,8 +78,8 @@ Local release builds use `keystore.properties` (see `keystore.properties.example
 1. Set the new version in `version.txt` (for example `1.0.11`) and commit it to `main`
    (`release.ps1` automates bump, commit, tag and push if you use PowerShell).
 2. Tag and push: `git tag v1.0.11 && git push origin v1.0.11`. The tag must equal `v` + the content of `version.txt`.
-3. `release.yml` builds the signed APKs and creates the GitHub Release. When it succeeds, `fdroid.yml` starts automatically,
-   adds the APKs to the repository and publishes it. The job summary prints the repository URL and its **fingerprint**
+3. `release.yml` builds the signed APKs and creates a **draft** GitHub Release. Review it and click "Publish release" (automatic `fdroid.yml` runs skip drafts), then run *F-Droid repository* manually (Actions → Run workflow).
+   It adds the APKs to the repository and publishes it. The job summary prints the repository URL and its **fingerprint**
    (also written to `fdroid/repo-info.md` on Pages: `https://maksimkurb.github.io/EasyTierCompose/fdroid/repo-info.md`).
 4. Compare that fingerprint with the one shown by F-Droid when you add the repository.
 

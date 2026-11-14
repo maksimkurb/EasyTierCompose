@@ -31,11 +31,42 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  # A draft release is not public yet, so an automatic run after `Release` must not publish it to F-Droid.
+  # Publish the draft on GitHub, then run this workflow manually (workflow_dispatch).
+  check:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.draft.outputs.publish }}
+    steps:
+      - name: Skip draft releases on automatic runs
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          RUN_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          tag="${INPUT_TAG:-$RUN_TAG}"
+          draft=false
+          if [ "$EVENT" != "workflow_dispatch" ] && [ -n "$tag" ]; then
+            draft="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2> /dev/null || echo false)"
+          fi
+          if [ "$draft" = "true" ]; then
+            echo "::notice::Release $tag is a draft: not publishing to F-Droid. Publish the release, then run this workflow manually."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: check
+    if: needs.check.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

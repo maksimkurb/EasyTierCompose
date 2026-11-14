@@ -100,6 +100,11 @@ jobs:
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | sudo "$sdkmanager" --licenses > /dev/null || true
           sudo "$sdkmanager" "ndk;$NDK" "cmake;4.1.2" "build-tools;37.0.0" "platforms;android-37.0" > /dev/null
+          # sudo can leave root-owned ~/.android or ~/.config/.android behind; AGP must be able to write
+          # its debug keystore there. Use a user-owned location and repair anything already created.
+          mkdir -p "$RUNNER_TEMP/android-user-home"
+          echo "ANDROID_USER_HOME=$RUNNER_TEMP/android-user-home" >> "$GITHUB_ENV"
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/.android" "$HOME/.config" 2> /dev/null || true
 
       - name: Install Rust toolchain, Android targets, cargo-ndk, protoc
         if: steps.out-cache.outputs.cache-hit != 'true'
