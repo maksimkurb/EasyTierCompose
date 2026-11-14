@@ -102,7 +102,7 @@
     <string name="profiles_add_import_link">Import from link</string>
     <string name="profiles_import_error_title">Import failed</string>
     <string name="profiles_import_url_label">Configuration URL</string>
-    <string name="profiles_import_url_hint">https://example.com/config.toml</string>
+    <string name="profiles_import_url_hint">https://example.com/config.toml or an EasyTier share link</string>
     <string name="profiles_import_fetch">Import</string>
     <string name="profiles_import_loading">Fetching configuration…</string>
     <string name="profiles_import_invalid_url">Enter a valid http(s) URL</string>
@@ -110,6 +110,8 @@
     <string name="profiles_import_too_large">Configuration is too large</string>
     <string name="profiles_import_missing_identity">Missing [network_identity] section</string>
     <string name="profiles_import_missing_network_name">network_name is missing in [network_identity]</string>
+    <string name="profiles_import_invalid_share_link">This EasyTier share link is not valid or is corrupted</string>
+    <string name="profiles_import_web_console_url">Web console config-server URLs cannot be imported. Export a TOML configuration from the console or use a share link.</string>
     <string name="content_export_profile">Export profile as TOML</string>
     <string name="profiles_delete_title">Delete %1$s?</string>
     <string name="profiles_disconnect_before_delete">Disconnect before deleting</string>
@@ -156,6 +158,10 @@
     <string name="settings_reset_message">The current active connection will stop first.</string>
 
     <string name="editor_disconnect_before_save">Disconnect before saving changes to this profile.</string>
+    <string name="editor_source_title">Imported from link</string>
+    <string name="editor_source_hint">The configuration is re-read only when you tap Refresh. It is never fetched automatically.</string>
+    <string name="editor_source_refresh">Refresh from link</string>
+    <string name="editor_source_refreshing">Refreshing…</string>
     <string name="editor_general">General</string>
     <string name="editor_profile_name">Profile name</string>
     <string name="editor_hostname">Hostname</string>

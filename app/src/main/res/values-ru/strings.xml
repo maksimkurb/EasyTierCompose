@@ -113,7 +113,7 @@
     <string name="profiles_add_import_link">Импорт по ссылке</string>
     <string name="profiles_import_error_title">Не удалось импортировать</string>
     <string name="profiles_import_url_label">URL конфигурации</string>
-    <string name="profiles_import_url_hint">https://example.com/config.toml</string>
+    <string name="profiles_import_url_hint">https://example.com/config.toml или ссылка EasyTier</string>
     <string name="profiles_import_fetch">Импортировать</string>
     <string name="profiles_import_loading">Загрузка конфигурации…</string>
     <string name="profiles_import_invalid_url">Введите корректный http(s) URL</string>
@@ -121,6 +121,8 @@
     <string name="profiles_import_too_large">Конфигурация слишком большая</string>
     <string name="profiles_import_missing_identity">В конфигурации нет раздела [network_identity]</string>
     <string name="profiles_import_missing_network_name">В разделе [network_identity] не указан network_name</string>
+    <string name="profiles_import_invalid_share_link">Ссылка EasyTier недействительна или повреждена</string>
+    <string name="profiles_import_web_console_url">URL сервера конфигурации веб-консоли нельзя импортировать. Экспортируйте конфигурацию TOML из консоли или используйте ссылку общего доступа.</string>
     <string name="content_export_profile">Экспортировать профиль в TOML</string>
     <string name="profiles_delete_title">Удалить «%1$s»?</string>
     <string name="profiles_disconnect_before_delete">Отключитесь перед удалением</string>
@@ -167,6 +169,10 @@
     <string name="settings_reset_message">Текущее активное подключение будет остановлено.</string>
 
     <string name="editor_disconnect_before_save">Отключитесь, прежде чем сохранять изменения этого профиля.</string>
+    <string name="editor_source_title">Импортировано по ссылке</string>
+    <string name="editor_source_hint">Конфигурация перечитывается только по нажатию «Обновить». Автоматическая загрузка не выполняется.</string>
+    <string name="editor_source_refresh">Обновить по ссылке</string>
+    <string name="editor_source_refreshing">Обновление…</string>
     <string name="editor_general">Основное</string>
     <string name="editor_profile_name">Название профиля</string>
     <string name="editor_hostname">Имя хоста</string>

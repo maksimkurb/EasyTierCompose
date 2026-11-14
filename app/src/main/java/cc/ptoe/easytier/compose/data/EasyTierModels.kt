@@ -276,6 +276,12 @@ data class EasyTierProfile(
     // credential key file (credential_file). Network-wide, profile only.
     val managedCredentials: List<ManagedCredential> = emptyList(),
     val credentialFile: String? = null,
+    /**
+     * URL the profile was imported from (TOML over HTTP(S) or an EasyTier
+     * share link). Only used by the manual "Refresh from link" action in the
+     * editor; the app never refreshes it automatically.
+     */
+    val sourceUrl: String? = null,
 )
 
 /**

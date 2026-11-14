@@ -1,10 +1,13 @@
 package cc.ptoe.easytier.compose.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
@@ -12,15 +15,19 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -28,8 +35,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import cc.ptoe.easytier.compose.R
+import cc.ptoe.easytier.compose.core.ProfileLinkResult
+import cc.ptoe.easytier.compose.core.ProfileLinkSource
 import cc.ptoe.easytier.compose.core.ValidationMessage
 import cc.ptoe.easytier.compose.core.resolve
+import cc.ptoe.easytier.compose.core.withImportedConfig
 import cc.ptoe.easytier.compose.data.CompressionAlgo
 import cc.ptoe.easytier.compose.data.EasyTierProfile
 import cc.ptoe.easytier.compose.data.EncryptionAlgorithm
@@ -46,6 +56,9 @@ import cc.ptoe.easytier.compose.ui.components.ProxyNetworkListField
 import cc.ptoe.easytier.compose.ui.components.SectionCard
 import cc.ptoe.easytier.compose.ui.components.SwitchRow
 import cc.ptoe.easytier.compose.ui.components.VpnPortalClientListField
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun ProfileEditorScreen(
@@ -58,6 +71,10 @@ internal fun ProfileEditorScreen(
     val context = LocalContext.current
     fun error(key: String): String? = errors[key]?.resolve(context)
     var revealSecret by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var sourceRefreshing by remember { mutableStateOf(false) }
+    var sourceError by remember { mutableStateOf<String?>(null) }
+    val sourceUrl = profile.sourceUrl
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (running) {
@@ -72,6 +89,60 @@ internal fun ProfileEditorScreen(
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                }
+            }
+        }
+
+        if (sourceUrl != null) {
+            item {
+                SectionCard(title = stringResource(R.string.editor_source_title), icon = Icons.Default.Refresh) {
+                    Text(
+                        text = displaySourceUrl(sourceUrl),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(R.string.editor_source_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        enabled = !running && !sourceRefreshing,
+                        onClick = {
+                            sourceRefreshing = true
+                            sourceError = null
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) { ProfileLinkSource.load(sourceUrl) }
+                                sourceRefreshing = false
+                                when (result) {
+                                    is ProfileLinkResult.Success -> update { it.withImportedConfig(result.profile) }
+                                    is ProfileLinkResult.Failure -> {
+                                        sourceError = result.messageRes?.let(context::getString) ?: result.message
+                                    }
+                                }
+                            }
+                        },
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (sourceRefreshing) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Text(stringResource(R.string.editor_source_refreshing))
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = null)
+                                Text(stringResource(R.string.editor_source_refresh))
+                            }
+                        }
+                    }
+                    sourceError?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         }
@@ -401,3 +472,7 @@ internal fun ProfileEditorScreen(
         }
     }
 }
+
+/** Share links can be very long; keep the origin visible without a wall of text. */
+private fun displaySourceUrl(url: String): String =
+    if (url.length <= 160) url else url.take(157) + "…"

@@ -20,6 +20,10 @@ management, network orchestration and two ways of attaching the virtual network 
 - **Full configuration editor** — sectioned form covering all EasyTier core fields (General / Network & Peers / Routing / IPv6 /
   Port Forwards / VPN Portal / Secure Mode / STUN & Whitelists / Flags — General / P2P / KCP / QUIC); the generated
   structured TOML is validated by the native `parseConfig`
+- **Configuration import** — import a TOML file, a TOML URL, or an EasyTier configuration share link
+  (`https://easytier.cn/comp_cfg?...`); imported profiles remember the source URL and can be re-synced manually from
+  the editor (never in the background). Web console *config-server* URLs (`udp://…`) are a runtime management
+  channel, not a configuration format: export a TOML from the console instead.
 - **Magic DNS** — EasyTier's built-in DNS (`100.100.100.101`) in both TUN modes; `ROOT_TUN` additionally switches the system DNS through the root shell
 - **Peers screen** — runtime peers with virtual IP, latency, tunnel protocol, packet loss, NAT type and cost (direct / relay)
 - **Global overrides** — TUN device name, `no_tun` and SOCKS5 (port and listen address) shared by all profiles
@@ -145,8 +149,9 @@ Publishing (CI, signing keys, F-Droid repository): [docs/RELEASING.md](docs/RELE
 ## Privacy
 
 - The app contains **no telemetry, analytics, crash reporting, ads or Google services**.
-- The only network request made by the app code itself is **Import from link** on the Profiles screen:
-  an HTTP(S) `GET` of the URL you typed, when you tap *Import*.
+- The only network requests made by the app code itself are the user-triggered **Import from link** on the
+  Profiles screen and **Refresh from link** in a profile editor: an HTTP(S) `GET` of the URL you entered.
+  EasyTier configuration share links are decoded locally and make no request.
 - The EasyTier core is a VPN: it talks to the peers you configure. In addition, to detect the NAT type and its public
   address (needed for NAT traversal / hole punching) it contacts **public STUN servers** by default, which see your public
   IP address and the UDP/TCP port used:

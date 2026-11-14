@@ -64,9 +64,12 @@ import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import cc.ptoe.easytier.compose.R
+import cc.ptoe.easytier.compose.core.ProfileLinkResult
+import cc.ptoe.easytier.compose.core.ProfileLinkSource
 import cc.ptoe.easytier.compose.core.TomlConfigBuilder
 import cc.ptoe.easytier.compose.core.TomlImportResult
 import cc.ptoe.easytier.compose.core.TomlProfileImporter
+import cc.ptoe.easytier.compose.core.readLimitedConfigText
 import cc.ptoe.easytier.compose.data.EasyTierProfile
 import cc.ptoe.easytier.compose.data.RuntimeState
 import cc.ptoe.easytier.compose.ui.EasyTierUiState
@@ -74,10 +77,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URI
-import java.nio.charset.Charset
 
 @Composable
 internal fun ProfilesScreen(
@@ -99,12 +98,12 @@ internal fun ProfilesScreen(
     var importError by remember { mutableStateOf<String?>(null) }
     var pendingExport by remember { mutableStateOf<Pair<EasyTierProfile, String>?>(null) }
 
-    fun handleImportText(text: String) {
+    fun handleImportText(text: String, sourceUrl: String? = null) {
         when (val result = TomlProfileImporter.import(text)) {
             is TomlImportResult.Success -> {
                 fabExpanded = false
                 showLinkDialog = false
-                importProfile(result.profile)
+                importProfile(if (sourceUrl == null) result.profile else result.profile.copy(sourceUrl = sourceUrl))
             }
 
             is TomlImportResult.Failure -> importError = result.messageRes?.let(context::getString) ?: result.message
@@ -129,7 +128,7 @@ internal fun ProfilesScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val read = withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.openInputStream(uri)?.use(::readLimited) }.getOrNull()
+                runCatching { context.contentResolver.openInputStream(uri)?.use(::readLimitedConfigText) }.getOrNull()
             }
             when {
                 read == null -> importError = context.getString(R.string.profiles_import_read_failed)
@@ -154,39 +153,26 @@ internal fun ProfilesScreen(
 
     fun fetchFromLink() {
         val input = linkUrl.trim()
-        val uri = runCatching { URI.create(input) }.getOrNull()
-        if (uri == null || (uri.scheme != "http" && uri.scheme != "https") || uri.host.isNullOrEmpty()) {
+        if (input.isEmpty()) {
             linkError = context.getString(R.string.profiles_import_invalid_url)
             return
         }
         linkLoading = true
         linkError = null
         scope.launch {
-            val fetched: Result<ReadResult> = withContext(Dispatchers.IO) {
-                runCatching {
-                    val connection = (uri.toURL().openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 10_000
-                        readTimeout = 10_000
-                    }
-                    try {
-                        if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
-                        readLimited(connection.inputStream)
-                    } finally {
-                        connection.disconnect()
-                    }
+            val result = withContext(Dispatchers.IO) { ProfileLinkSource.load(input) }
+            linkLoading = false
+            when (result) {
+                is ProfileLinkResult.Success -> {
+                    fabExpanded = false
+                    showLinkDialog = false
+                    importProfile(result.profile)
+                }
+
+                is ProfileLinkResult.Failure -> {
+                    linkError = result.messageRes?.let(context::getString) ?: result.message
                 }
             }
-            linkLoading = false
-            fetched.fold(
-                onSuccess = { read ->
-                    if (read.tooLarge) {
-                        linkError = context.getString(R.string.profiles_import_too_large)
-                    } else {
-                        handleImportText(read.text)
-                    }
-                },
-                onFailure = { linkError = it.message ?: context.getString(R.string.profiles_import_read_failed) },
-            )
         }
     }
 
@@ -424,65 +410,3 @@ private fun LinkImportDialog(
 
 private fun exportFileName(name: String): String =
     "${name.trim().ifBlank { "profile" }.replace(Regex("""[/\\:*?"<>|]"""), "_")}.toml"
-
-private const val MAX_IMPORT_BYTES = 1_048_576
-
-private data class ReadResult(val text: String, val tooLarge: Boolean)
-
-/**
- * Reads at most [MAX_IMPORT_BYTES] bytes, decoding the content by its byte
- * order mark. Config files saved as UTF-16 (e.g. from Windows Notepad) would
- * otherwise decode as UTF-8 with a NUL interleaved per character, which TOML
- * rejects ("Unexpected \u0000").
- */
-private fun readLimited(stream: java.io.InputStream): ReadResult {
-    val bytes = ByteArrayOutputStream()
-    val buffer = ByteArray(8192)
-    while (bytes.size() < MAX_IMPORT_BYTES) {
-        val read = stream.read(buffer)
-        if (read <= 0) break
-        val room = MAX_IMPORT_BYTES - bytes.size()
-        bytes.write(buffer, 0, minOf(read, room))
-    }
-    val tooLarge = stream.read() != -1
-    return ReadResult(decode(bytes.toByteArray()), tooLarge)
-}
-
-private fun decode(content: ByteArray): String {
-    val utf8Bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
-    val utf16LeBom = byteArrayOf(0xFF.toByte(), 0xFE.toByte())
-    val utf16BeBom = byteArrayOf(0xFE.toByte(), 0xFF.toByte())
-    val body: ByteArray
-    val charset: Charset
-    when {
-        content.startsWith(utf16LeBom) -> {
-            body = content.copyOfRange(2, content.size)
-            charset = Charsets.UTF_16LE
-        }
-
-        content.startsWith(utf16BeBom) -> {
-            body = content.copyOfRange(2, content.size)
-            charset = Charsets.UTF_16BE
-        }
-
-        content.startsWith(utf8Bom) -> {
-            body = content.copyOfRange(3, content.size)
-            charset = Charsets.UTF_8
-        }
-
-        else -> {
-            body = content
-            charset = Charsets.UTF_8
-        }
-    }
-    // NUL defense: stray padding, or UTF-16 misread as UTF-8 by a BOM-less path.
-    return String(body, charset).replace("\u0000", "")
-}
-
-private fun ByteArray.startsWith(prefix: ByteArray): Boolean {
-    if (size < prefix.size) return false
-    for (i in prefix.indices) {
-        if (this[i] != prefix[i]) return false
-    }
-    return true
-}

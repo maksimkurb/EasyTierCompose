@@ -145,6 +145,23 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
   `instance_name` 落到 `name`；`tunMode` 推断规则——`no_tun=true` → NO\_TUN，出现 `socket_mark` →
   ROOT\_TUN（仅 Root 模式会写该字段），否则 VPN\_SERVICE。
 
+* [EasyTierWebLink.kt](app/src/main/java/cc/ptoe/easytier/compose/core/EasyTierWebLink.kt) —
+  `EasyTierWebLink`（object）+ `WebLinkResult`。解码 EasyTier 配置分享链接
+  `https://easytier.cn/comp_cfg?cfg=...`：URL-safe base64 → zlib → `api.manage.NetworkConfig`
+  proto JSON（顶层数字键按 `FIELD_NAMES` 映射回字段名，同时接受命名字段），全程本地处理、**不发起网络请求**。
+  链接的 `name` 查询参数优先作为 profile 名；`no_tun` / `socket_mark` 推断 `tunMode`。未知字段忽略。
+
+* [ProfileLinkSource.kt](app/src/main/java/cc/ptoe/easytier/compose/core/ProfileLinkSource.kt) —
+  `ProfileLinkSource`（object）+ `ProfileLinkResult`，导入 URL 的统一入口：分享链接走
+  `EasyTierWebLink`（无网络）；`http(s)` URL 经 `fetchConfigText` 抓取后交给 `TomlProfileImporter`；
+  `udp/tcp/ws/wss/ring` 配置服务器 URL 会返回专门提示（不是可导入的配置）。成功时写入
+  `sourceUrl`。`EasyTierProfile.withImportedConfig` 用于手动刷新：保留 id / 显示名 / `tunMode` /
+  设备级选项（`tunDeviceName`、`startOnBoot`、`mtu`、线程数、bps、`socketMark`）与 `sourceUrl`。
+
+* [ConfigTextReader.kt](app/src/main/java/cc/ptoe/easytier/compose/core/ConfigTextReader.kt) —
+  `ConfigText` + `readLimitedConfigText` / `fetchConfigText`：1 MB 上限、BOM（UTF-8/UTF-16）解码、
+  `HttpURLConnection`（10 s 连接/读取超时，仅 http/https）。文件导入与 URL 导入共用。
+
 * [NetworkInfo.kt](app/src/main/java/cc/ptoe/easytier/compose/core/NetworkInfo.kt) —
   `collectNetworkInfos` 返回 JSON 的解析逻辑（从原 `EasyTierRuntimeCoordinator.kt` 抽出）：
   `NetworkInfo` data class、`String.networkInfo(profileId)` 顶层解析、`peerRoutePair()` 映射
@@ -156,7 +173,8 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
 
 * [EasyTierModels.kt](app/src/main/java/cc/ptoe/easytier/compose/data/EasyTierModels.kt) —
   `EasyTierProfile`（`@Serializable`，含 \~50 个字段：基础、peers、listeners、proxy networks、port
-  forwards、VPN portal、secure mode、STUN/whitelists、KCP/QUIC proxy flags、bps 限制等）、`GlobalSettings`（
+  forwards、VPN portal、secure mode、STUN/whitelists、KCP/QUIC proxy flags、bps 限制等；`sourceUrl`
+  记录导入来源、仅用于手动刷新）、`GlobalSettings`（
   `tunDeviceName` / `noTun` / `startOnBoot` / `mtu` / `multiThread` / `multiThreadCount` / bps 限制）、
   `TunMode` / `CompressionAlgo` / `EncryptionAlgorithm` 枚举、`Peer` / `ProxyNetwork` /
   `PortForward` / `VpnPortal` / `SecureMode` 子结构、`RuntimePeer`（含 `connectionType` /
@@ -260,8 +278,8 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
   * [ProfilesScreen.kt](app/src/main/java/cc/ptoe/easytier/compose/ui/screens/ProfilesScreen.kt) —
     profile 列表 + 删除确认对话框 + 导出（`CreateDocument` 写
     `TomlConfigBuilder.build(profile, globalSettings)`）。FAB 弹出三选添加对话框：手动添加 /
-    导入 TOML 文件（`OpenDocument`，SAF 读取）/ 从 http(s) 链接导入（`HttpURLConnection` 抓取，上限
-    1MB）；导入经 `TomlProfileImporter` 解析成功后回填为编辑器草稿，失败弹错误对话框。
+    导入 TOML 文件（`OpenDocument`，SAF 读取）/ 从链接导入（分享链接本地解码；http(s) URL 经
+    `ProfileLinkSource` 抓取 TOML，上限 1MB）；成功后回填为编辑器草稿并记录 `sourceUrl`，失败弹错误对话框。
 
   * [PeersScreen.kt](app/src/main/java/cc/ptoe/easytier/compose/ui/screens/PeersScreen.kt) —
     `PeersScreen` 列出 `RuntimePeer`，`PeerDetailsDialog` 展示延迟 / 隧道 / 丢包率等详情。
@@ -269,7 +287,9 @@ When adding a language update `locales_config.xml` and `androidResources.localeF
   * [ProfileEditorScreen.kt](app/src/main/java/cc/ptoe/easytier/compose/ui/screens/ProfileEditorScreen.kt) —
     按分区组织全部配置（General / Network & Peers / Routing / IPv6 Public Address / Port Forwards /
     VPN Portal (WireGuard) / Secure Mode / STUN & Whitelists / Flags — General / Flags — P2P /
-    Flags — KCP Proxy / Flags — QUIC Proxy）。
+    Flags — KCP Proxy / Flags — QUIC Proxy）。若 profile 带 `sourceUrl`，顶部额外显示「Imported from link」
+    分区：展示来源 URL 与 **Refresh from link** 按钮（仅用户点击时重新读取；运行中禁用，刷新结果先进入草稿，
+    保存时才落盘）。
 
   * [SettingsScreen.kt](app/src/main/java/cc/ptoe/easytier/compose/ui/screens/SettingsScreen.kt) —
     TUN 模式切换、**Global overrides**（TUN 设备名 / `no_tun` / Start on boot）、通知授权与 Reset。
@@ -363,6 +383,14 @@ VpnService/其他代理的 TUN 劫持；VPN\_SERVICE 侧的 No TUN 仍在 app �
   `com.easytier.jni.EasyTierJNI`。
 
 * **不自动连接**：`MainActivity.onResume()` 有意留空，连接必须由用户显式触发。
+
+* **配置来源 URL 只在用户操作时读取**：`ProfileLinkSource` 仅在「Import from link」/「Refresh from link」
+  被点击时运行；启动、轮询与后台都不会自动请求。分享链接在本地解码，不触网。
+
+* **Web 控制台 config-server 模式未实现**：EasyTier-Core 的 JNI 提供 `startConfigServerClient` /
+  `stopConfigServerClient` / `isConfigServerClientConnected`（prebuilt `.so` 中已导出），但该模式由服务器
+  动态下发并可管理多实例，需要新的运行时与多 TUN 编排，因此应用目前将其 URL（`udp/tcp/ws/wss/ring`）
+  明确判为不可导入，只支持「导出/托管的 TOML」与分享链接。
 
 * **运行中不可编辑/删除/切换模式**：`EasyTierViewModel.saveDraft` / `delete` / `updateTunMode` 均检查
   `RuntimeState.STARTING/RUNNING` 并拒绝；`resetProfiles` 会先 `coordinator.stop()` 再清空。
