@@ -19,7 +19,12 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven("https://jitpack.io")
+        // libsu (com.github.topjohnwu.libsu) is only published on JitPack. Restrict the
+        // repository to that group so nothing else can be resolved from it.
+        exclusiveContent {
+            forRepository { maven("https://jitpack.io") }
+            filter { includeGroup("com.github.topjohnwu.libsu") }
+        }
     }
 }
 

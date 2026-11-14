@@ -4,7 +4,7 @@
 
 ## 项目概览
 
-EasyTierCompose 是一个单 Activity 的 Jetpack Compose Android 应用，封装 [EasyTier](https://github.com/ECSDevs/EasyTier)（Rust + Tokio 实现的去中心化 VPN）核心。应用本身不编译 Rust 核心，而是通过 JNI 调用预构建的 `libeasytier_android_jni.so`。
+EasyTierCompose 是一个单 Activity 的 Jetpack Compose Android 应用，封装 [EasyTier](https://github.com/EasyTier/EasyTier)（Rust + Tokio 实现的去中心化 VPN）核心。Rust 核心由 Gradle 任务 `buildRustJniLibs` 从 `EasyTier-Core` submodule 构建为 `libeasytier_android_jni.so`（见下文 *Native library build*），应用通过 JNI 调用它。仓库中**不提交**任何预构建的 `.so`。
 
 * 应用包名 / namespace：`cc.ptoe.easytier.compose`
 
@@ -14,17 +14,16 @@ EasyTierCompose 是一个单 Activity 的 Jetpack Compose Android 应用，封�
 
 * 单模块：`:app`
 
-* EasyTier-Core 为 git submodule（`EasyTier-Core/`
-  ，指向 <https://github.com/ECSDevs/EasyTier.git），仅作为预构建> `.so` 的上游来源，不参与 Gradle 构建
+* EasyTier-Core 为 git submodule（`EasyTier-Core/`，指向 <https://github.com/EasyTier/EasyTier.git>；固定提交 `81487c3`，该提交位于上游 `main` 历史中。此前文档中的 `ECSDevs/EasyTier` 不存在，已更正），由 `buildRustJniLibs` 任务构建
 
 ## 构建工具链
 
 | 项                                | 版本 / 配置                                                                |
 | -------------------------------- | ---------------------------------------------------------------------- |
-| AGP                              | 9.3.1                                                                  |
+| AGP                              | 9.4.1                                                                  |
 | Kotlin                           | 2.2.10                                                                 |
 | Compose BOM                      | 2026.02.01                                                             |
-| Gradle                           | 9.5.0                                                                  |
+| Gradle                           | 9.7.1（wrapper）                                                         |
 | Gradle Daemon JVM                | 21（由 `gradle/gradle-daemon-jvm.properties` 固定，通过 foojay-resolver 自动下载） |
 | Java source/target compatibility | 11                                                                     |
 | compileSdk                       | 37                                                                     |
@@ -55,7 +54,44 @@ EasyTierCompose 是一个单 Activity 的 Jetpack Compose Android 应用，封�
 
 `libroot_tun_jni.so` 由 `externalNativeBuild`（CMake）在构建时自动从 `app/src/main/cpp/root_tun_jni.cpp` 编译，无需手动操作。
 
-`libeasytier_android_jni.so` 是预构建产物，已存在于 `app/src/main/jniLibs/<abi>/`。如需重新构建，需进入 `EasyTier-Core/easytier-contrib/easytier-android-jni/` 运行 `build.sh`（需要 Rust + Android NDK），再将产物拷回 `jniLibs`。**不要将其纳入 Gradle 构建。**
+`libeasytier_android_jni.so` 由 Gradle 任务 `buildRustJniLibs` 构建（取代了原先的 `update-easytier-jni.ps1` 与手动拷贝；**旧规则“不要将其纳入 Gradle 构建”已废止**）。详见下一节。
+
+## Native library build (English)
+
+`libeasytier_android_jni.so` is built from the `EasyTier-Core` submodule by the Gradle task
+`:app:buildRustJniLibs` (`buildSrc/src/main/kotlin/cc/ptoe/easytier/gradle/BuildRustJniLibsTask.kt`,
+registered in `app/build.gradle.kts`). Never commit a built `.so`; `app/src/main/jniLibs/**/libeasytier_android_jni.so` is git-ignored.
+
+* **Flow**: `cargo ndk --target <abi> build --release --locked --package easytier-android-jni` run in
+  `EasyTier-Core` for `arm64-v8a`, `armeabi-v7a`, `x86_64`. `easytier-ffi` is a path dependency of the JNI
+  crate and is compiled as part of it. Output: `app/build/generated/rustJniLibs/<abi>/libeasytier_android_jni.so`
+  (plus `app/build/generated/rustJniLibs-BUILD-INFO.txt` with the core commit, rustc, cargo-ndk and NDK versions).
+  The directory is registered per variant via `androidComponents.onVariants { variant.sources.jniLibs }`, so
+  `merge*JniLibResources` / `assemble*` depend on it. `CARGO_TARGET_DIR` is `<root>/build/rust-target` (the submodule stays clean).
+* **NDK**: the task uses the NDK that AGP resolves from `android.ndkVersion` and exports it as `ANDROID_NDK_HOME`.
+  It also sets the dashed `BINDGEN_EXTRA_CLANG_ARGS_<triple>` variable with a *versioned* `--target` (kcp-sys' bindgen
+  fails with "Unversioned target triples are not supported" otherwise) and `LIBCLANG_PATH` to the NDK's libclang.
+* **Prerequisites are checked, never installed**: Rust toolchain from `EasyTier-Core/rust-toolchain.toml` (currently 1.95;
+  `RUSTUP_AUTO_INSTALL=0` is set so rustup cannot download one silently), the three `*-linux-android` rustup targets,
+  `cargo-ndk`, `protoc`. A missing piece fails the build with the command to run.
+* **Incremental**: inputs are the submodule commit (`git rev-parse HEAD:EasyTier-Core`), the core's sources
+  (excluding `target/`, docs, GUI, web), the ABI list, the NDK path and the patch list. Use `--rerun-tasks` after upgrading rustc or cargo-ndk.
+* **Gradle properties**: `-PrustAbis=arm64-v8a,x86_64` (subset of ABIs); `-PskipRustBuild -PrustJniLibsDir=<dir>` (use a
+  prebuilt `<dir>/<abi>/libeasytier_android_jni.so`, no Cargo; CI uses this with the output of `build-native.yml`);
+  `-PrustPatches=<name>[,<name>]` (apply `patches/<name>` to the core for this build and revert afterwards, see `patches/README.md`).
+* **F-Droid / offline**: no committed binaries except `gradle/wrapper/gradle-wrapper.jar`. The Gradle build needs no network
+  beyond what Cargo downloads (crates and git dependencies pinned by the core's `Cargo.lock`, `--locked`).
+* **JNI wrapper**: if native method signatures change in a new core version, also sync
+  `EasyTier-Core/easytier-contrib/easytier-android-jni/kotlin/com/easytier/jni/` into `app/src/main/java/com/easytier/jni/`.
+
+## Localization
+
+Default strings are English (`values/strings.xml`); Russian is `values-ru/strings.xml` and Chinese `values-zh-rCN/strings.xml` (both complete).
+Add every new string to all three files (strings referenced from the manifest, e.g. `fgs_special_use_subtype`, must be `translatable="false"`). `LocalizationTest` fails when a key,
+a plural quantity (`one/few/many/other` for ru, `other` for zh) or a format placeholder is missing or mismatched, or when
+`res/xml/locales_config.xml` disagrees with the `values-*` directories. Russian terminology: peer = «узел», subnet = «подсеть»,
+profile = «профиль», relay = «ретранслятор», NAT traversal = «обход NAT»; protocol names, config keys and the product name stay untranslated.
+When adding a language update `locales_config.xml` and `androidResources.localeFilters` in `app/build.gradle.kts`.
 
 ## 代码架构
 
@@ -374,7 +410,7 @@ VpnService/其他代理的 TUN 劫持；VPN\_SERVICE 侧的 No TUN 仍在 app �
 
 1. **修改 AIDL / Parcelable 后**需重新构建以刷新生成的 Stub。
 2. **`libeasytier_android_jni.so`** **缺失或架构不匹配**会触发 `UnsatisfiedLinkError`；确认
-   `jniLibs/<abi>/` 存在且 `abiFilters` 匹配。
+   `buildRustJniLibs` 已为对应 ABI 构建（`app/build/generated/rustJniLibs/<abi>/`），或 `-PrustJniLibsDir` 指向包含该 ABI 的目录；`-PrustAbis` 只构建了部分 ABI 时，其他 ABI 的 APK 将缺少该库。
 3. **Root 模式**依赖设备已 root 且 libsu 能获取 root；`RootService.unbind` 必须在 `bound` 为 true 时才调用。
 4. **netlink 路由**：TUN 远端网络路由必须用 `RT_SCOPE_UNIVERSE`（非 `LINK`），否则对任意 CIDR 返回 EINVAL。
 5. **IPv4 addr 解析**：EasyTier 序列化的 `addr` 是 `u32::from_be_bytes` 的 big-endian 整数，需拆字节还原。

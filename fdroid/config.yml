@@ -1,0 +1,19 @@
+# fdroidserver configuration for the self-hosted EasyTier Compose repository.
+# Used by fdroid/build-repo.sh. Contains no secrets: passwords come from the environment.
+repo_url: https://maksimkurb.github.io/EasyTierCompose/fdroid/repo
+repo_name: EasyTier Compose
+repo_description: >-
+  Unofficial F-Droid repository for EasyTier Compose, an Android client for the
+  EasyTier decentralized mesh VPN. Built from https://github.com/maksimkurb/EasyTierCompose.
+
+# Repository signing key (NOT the APK signing key). The keystore file is restored from the
+# FDROID_KEYSTORE_BASE64 secret; see docs/RELEASING.md.
+repo_keyalias: repokey
+keystore: keystore.p12
+keystorepass: {env: FDROID_KEY_STORE_PASS}
+keypass: {env: FDROID_KEY_PASS}
+keydname: CN=EasyTier Compose F-Droid repository, O=maksimkurb
+
+update_stats: false
+make_current_version_link: false
+archive_older: 0

@@ -19,6 +19,8 @@ import cc.ptoe.easytier.compose.data.SecureMode
 import cc.ptoe.easytier.compose.data.TunMode
 import cc.ptoe.easytier.compose.data.VpnPortal
 import cc.ptoe.easytier.compose.data.VpnPortalClient
+import androidx.annotation.StringRes
+import cc.ptoe.easytier.compose.R
 import org.tomlj.Toml
 import org.tomlj.TomlParseResult
 import org.tomlj.TomlTable
@@ -27,7 +29,14 @@ import java.util.UUID
 sealed interface TomlImportResult {
     data class Success(val profile: EasyTierProfile) : TomlImportResult
 
-    data class Failure(val message: String) : TomlImportResult
+    /**
+     * [message] is an English, log-friendly description. When [messageRes] is set the UI shows the
+     * localized string instead; parser errors (no [messageRes]) are shown verbatim.
+     */
+    data class Failure(
+        val message: String,
+        @param:StringRes val messageRes: Int? = null,
+    ) : TomlImportResult
 }
 
 /**
@@ -56,17 +65,17 @@ object TomlProfileImporter {
             // UTF-8 interleave a NUL per character. Both would trip the parser.
             val normalized = sanitize(toml)
             if (normalized.length > MAX_DOCUMENT_CHARS) {
-                return TomlImportResult.Failure("Configuration is too large")
+                return TomlImportResult.Failure("Configuration is too large", R.string.profiles_import_too_large)
             }
             val result = Toml.parse(normalized)
             result.errors().firstOrNull()?.let { error ->
                 return TomlImportResult.Failure(error.message ?: "Invalid TOML syntax")
             }
             val identity = result.getTable("network_identity")
-                ?: return TomlImportResult.Failure("Missing [network_identity] section")
+                ?: return TomlImportResult.Failure("Missing [network_identity] section", R.string.profiles_import_missing_identity)
             val networkName = identity.stringOr("network_name")?.trim().orEmpty()
             if (networkName.isEmpty()) {
-                return TomlImportResult.Failure("network_name is missing in [network_identity]")
+                return TomlImportResult.Failure("network_name is missing in [network_identity]", R.string.profiles_import_missing_network_name)
             }
 
             val flags = result.getTable("flags")

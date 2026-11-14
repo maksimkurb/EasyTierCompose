@@ -1,0 +1,11 @@
+EasyTier Compose is an Android client for EasyTier, a decentralized mesh VPN written in Rust. The app wraps the EasyTier core and adds native profile management and two ways of attaching the virtual network to the system.
+
+Features:
+• Two TUN modes: VPN service (no root needed) and root TUN with a real easytier0 interface
+• Multiple profiles with a full configuration editor covering all EasyTier core options
+• Magic DNS, SOCKS5 proxy, port forwards, subnet proxying, WireGuard portal, ACLs
+• Peers screen with virtual IP, latency, tunnel protocol, packet loss, NAT type and relay or direct connection
+• Global overrides shared by all profiles
+• Material 3 interface with adaptive layout, English and Russian
+
+Privacy: the app has no telemetry, analytics or Google services. To detect the NAT type the EasyTier core contacts public STUN servers by default; you can configure your own servers per profile. See the README for the full list.

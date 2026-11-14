@@ -1,0 +1,41 @@
+From: EasyTierCompose <noreply@invalid>
+Subject: [PATCH] core: no built-in STUN servers (privacy option)
+
+Optional patch for EasyTier-Core (pinned commit). Empties the compiled-in default
+STUN server lists so the core never contacts third-party STUN servers unless a
+profile lists STUN servers explicitly (editor: "STUN & Whitelists").
+
+Trade-off: without any STUN server NAT type stays Unknown and the public
+mapped address is not discovered, so UDP/TCP hole punching between two peers
+that are both behind NAT mostly fails and traffic falls back to relays.
+
+---
+diff --git a/easytier-core/src/config/mod.rs b/easytier-core/src/config/mod.rs
+--- a/easytier-core/src/config/mod.rs
++++ b/easytier-core/src/config/mod.rs
+@@ -18,22 +18,9 @@
+ 
+ pub use encryption::EncryptionAlgorithm;
+ 
+-pub(crate) const DEFAULT_UDP_STUN_SERVERS: &[&str] = &[
+-    "txt:stun.easytier.cn",
+-    "stun.miwifi.com",
+-    "stun.chat.bilibili.com",
+-    "stun.hitv.com",
+-];
+-pub(crate) const DEFAULT_TCP_STUN_SERVERS: &[&str] = &[
+-    "stun.hot-chilli.net",
+-    "stun.fitauto.ru",
+-    "fwa.lifesizecloud.com",
+-    "global.turn.twilio.com",
+-    "turn.cloudflare.com",
+-    "stun.voip.blackberry.com",
+-    "stun.radiojar.com",
+-];
+-pub(crate) const DEFAULT_UDP_V6_STUN_SERVERS: &[&str] = &["txt:stun-v6.easytier.cn"];
++pub(crate) const DEFAULT_UDP_STUN_SERVERS: &[&str] = &[];
++pub(crate) const DEFAULT_TCP_STUN_SERVERS: &[&str] = &[];
++pub(crate) const DEFAULT_UDP_V6_STUN_SERVERS: &[&str] = &[];
+ 
+ pub(crate) fn default_stun_servers(servers: &[&str]) -> Vec<String> {
+     servers.iter().map(ToString::to_string).collect()

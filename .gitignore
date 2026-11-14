@@ -115,3 +115,5 @@ Desktop.ini
 
 # JNI backups
 .jni_backup_*/
+# Native EasyTier core is built by Gradle (see buildRustJniLibs), never committed
+app/src/main/jniLibs/**/libeasytier_android_jni.so

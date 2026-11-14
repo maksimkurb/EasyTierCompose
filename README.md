@@ -1,3 +1,5 @@
+English | [Русский](README.ru.md)
+
 # EasyTier Compose
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
@@ -5,24 +7,27 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.2.10-purple.svg)](https://kotlinlang.org)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-BOM%202026.02-blue.svg)](https://developer.android.com/jetpack/compose)
 
-一个基于 Jetpack Compose 的 Android 客户端，封装 [EasyTier](https://github.com/ECSDevs/EasyTier)（Rust + Tokio 实现的去中心化 VPN）核心，提供原生的配置管理、网络编排与两种 TUN 接入模式。
+An Android client for [EasyTier](https://github.com/EasyTier/EasyTier), the decentralized mesh VPN written in Rust.
+It is a single-activity Jetpack Compose app that wraps the EasyTier core through JNI and adds native profile
+management, network orchestration and two ways of attaching the virtual network to the system (TUN modes).
 
-> ✨ Decentralized mesh VPN, reborn as a first-class Android citizen.
+## Features
 
-## 功能特性
+- **Pure Compose UI** — Material 3 with an adaptive layout (NavigationBar on phones, NavigationRail on tablets)
+- **Two TUN modes** — `VPN_SERVICE` (no root, system VPN consent) and `ROOT_TUN` (root process with a real `easytier0` interface)
+- **JNI facade** — app code never touches native symbols directly; everything goes through `core.EasyTierJni`
+- **DataStore persistence** — multiple profiles plus the selected one, with automatic recovery from corrupted data
+- **Full configuration editor** — sectioned form covering all EasyTier core fields (General / Network & Peers / Routing / IPv6 /
+  Port Forwards / VPN Portal / Secure Mode / STUN & Whitelists / Flags — General / P2P / KCP / QUIC); the generated
+  structured TOML is validated by the native `parseConfig`
+- **Magic DNS** — EasyTier's built-in DNS (`100.100.100.101`) in both TUN modes; `ROOT_TUN` additionally switches the system DNS through the root shell
+- **Peers screen** — runtime peers with virtual IP, latency, tunnel protocol, packet loss, NAT type and cost (direct / relay)
+- **Global overrides** — TUN device name, `no_tun` and SOCKS5 (port and listen address) shared by all profiles
+- **Hostname auto-fill** — falls back to the Android device name when a profile leaves it blank (same as the core's `get_hostname`)
+- **Coroutine orchestration** — `SupervisorJob + Mutex` serializes the runtime state machine and avoids races
+- **Localized** — English and Russian (plus Chinese); per-app language on Android 13+
 
-- 📱 **纯 Compose UI** — Material 3 + 自适应布局（手机 NavigationBar / 平板 NavigationRail）
-- 🔌 **双 TUN 模式** — `VPN_SERVICE`（免 root，系统 VPN 授权）与 `ROOT_TUN`（root 进程 + 真实 `easytier0` 接口）
-- 🛡️ **JNI 门面架构** — 应用层不直接接触原生符号，统一通过 `core.EasyTierJni` 访问
-- 💾 **DataStore 持久化** — 多 profile 管理 + 选中态，含损坏数据自动恢复
-- 🎛️ **全配置项表单** — 覆盖 EasyTier Core 全部字段的分区编辑器（General / Network & Peers / Routing / IPv6 / Port Forwards / VPN Portal / Secure Mode / STUN & Whitelists / Flags — General / P2P / KCP / QUIC），生成结构化 TOML 并经原生 `parseConfig` 校验
-- 🌐 **Magic DNS** — 两种 TUN 模式均支持 EasyTier 内置 DNS（`100.100.100.101`）；ROOT_TUN 额外通过 root shell 切换系统 DNS
-- 👥 **Peers 屏幕** — 列出运行时 peer，展示虚拟 IP / 延迟 / 隧道协议 / 丢包率 / NAT 类型 / cost（直连/中继）
-- 🌍 **Global overrides** — 全局共享的 TUN 设备名 / `no_tun` / SOCKS5（端口与监听地址）
-- 🏷️ **Hostname 自动补全** — profile 留空时取 Android 设备名（与 EasyTier Core `get_hostname` 行为一致）
-- ⚡ **协程编排** — `SupervisorJob + Mutex` 串行化运行时状态机，避免竞态
-
-## 界面截图
+## Screenshots
 
 <table>
   <tr>
@@ -43,141 +48,141 @@
   </tr>
 </table>
 
-## 系统要求
+## TUN modes
 
-| 项                  | 值                                                 |
-|--------------------|---------------------------------------------------|
-| Android minSdk     | 24（Android 7.0）                                   |
-| Android targetSdk  | 36                                                |
-| Android compileSdk | 37                                                |
-| ABI                | `arm64-v8a` / `armeabi-v7a` / `x86_64`            |
-| Gradle             | 9.5.0                                             |
-| AGP                | 9.3.1                                             |
-| JDK                | 21（Daemon）/ 11（source/target compat）              |
-| NDK                | 30.0.16248370 / CMake 4.1.2（仅用于编译 `root_tun_jni`） |
+| | `VPN_SERVICE` | `ROOT_TUN` |
+|---|---|---|
+| Implementation | `VpnService.Builder` | `/dev/net/tun` + netlink |
+| Permission | system VPN consent dialog | root (libsu `RootService` IPC) |
+| Foreground service | `specialUse` | no (runs inside the root process) |
+| Magic DNS | supported (`100.100.100.101`) | supported (plus `settings put global dns1` to switch the system DNS) |
+| Device name | Android VPN (virtual) | `easytier0` (real interface) |
 
-Root TUN 模式需要设备已 root 并授予应用 root 权限。
+A third option, `NO_TUN`, runs the core without a TUN device (for SOCKS5 / port-forward only setups).
+`ROOT_TUN` needs a rooted device and a root grant for the app. Details are in [AGENTS.md](AGENTS.md).
 
-## 架构概览
+## Install
+
+### F-Droid repository
+
+Add this repository to F-Droid (or Droidify, Neo Store, ...):
+
+```
+https://maksimkurb.github.io/EasyTierCompose/fdroid/repo
+```
+
+Verify the repository signing-key fingerprint before trusting it. The fingerprint is generated by CI on every
+publish and shown in the job summary and in the published
+[`repo-info.md`](https://maksimkurb.github.io/EasyTierCompose/fdroid/repo-info.md):
+
+```
+SHA-256: <filled in by CI, see repo-info.md>
+```
+
+Direct link (replace the placeholder with the fingerprint):
+`https://maksimkurb.github.io/EasyTierCompose/fdroid/repo?fingerprint=<FINGERPRINT>`
+
+### APK
+
+Signed per-ABI APKs and their SHA-256 sums are attached to each
+[GitHub release](https://github.com/maksimkurb/EasyTierCompose/releases).
+The APK signing key is different from the F-Droid repository key, so an app installed from one
+source cannot be updated from the other without reinstalling.
+
+## Building from source
+
+### Prerequisites
+
+| Tool | Notes |
+|---|---|
+| JDK 21 | Gradle's daemon JVM is pinned to 21 (`gradle/gradle-daemon-jvm.properties`; downloaded by the foojay resolver if missing) |
+| Android SDK | platform 37, build-tools 37.0.0; accept the licenses (`sdkmanager --licenses`) |
+| Android NDK `30.0.16248370` and CMake `4.1.2` | installed by AGP on demand once the licenses are accepted |
+| Rust 1.95 (via [rustup](https://rustup.rs)) | version pinned by `EasyTier-Core/rust-toolchain.toml` |
+| `cargo-ndk` | `cargo install cargo-ndk --locked` |
+| `protoc` | Protocol Buffers compiler, from your package manager |
+| git | the EasyTier core is a submodule |
+
+Install the Rust pieces once (the build never installs anything for you, it only checks and tells you what is missing):
+
+```bash
+rustup toolchain install 1.95 --profile minimal \
+  -t aarch64-linux-android -t armv7-linux-androideabi -t x86_64-linux-android
+cargo install cargo-ndk --locked
+```
+
+### Build
+
+```bash
+git clone --recurse-submodules https://github.com/maksimkurb/EasyTierCompose.git
+cd EasyTierCompose
+# already cloned without submodules?
+git submodule update --init --recursive
+
+./gradlew :app:assembleDebug      # debug APKs (one per ABI)
+./gradlew :app:assembleRelease    # release APKs (signed if credentials are configured, see below)
+./gradlew :app:testDebugUnitTest  # unit tests
+```
+
+The first build compiles the EasyTier core with `cargo-ndk` for `arm64-v8a`, `armeabi-v7a` and `x86_64`
+(this takes a while, see the table below). The result goes to `app/build/generated/rustJniLibs/<abi>/` and is wired into
+the APK automatically. It is incremental: nothing is rebuilt unless the submodule commit, the core sources, the ABI list,
+the NDK or the patch list change.
+
+| Gradle property | Meaning |
+|---|---|
+| `-PrustAbis=arm64-v8a,x86_64` | build only some ABIs (faster local iteration; default: all three) |
+| `-PskipRustBuild -PrustJniLibsDir=<dir>` | skip Cargo and package an already built `<dir>/<abi>/libeasytier_android_jni.so` (used by CI) |
+| `-PrustPatches=<file>[,<file>]` | apply optional patches from [`patches/`](patches/README.md) to the core during the build |
+
+`./gradlew :app:buildRustJniLibs` builds only the native libraries.
+
+Release signing: copy `keystore.properties.example` to `keystore.properties` (git-ignored) or set
+`KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Without credentials the release APKs are left unsigned.
+
+Publishing (CI, signing keys, F-Droid repository): [docs/RELEASING.md](docs/RELEASING.md).
+
+## Privacy
+
+- The app contains **no telemetry, analytics, crash reporting, ads or Google services**.
+- The only network request made by the app code itself is **Import from link** on the Profiles screen:
+  an HTTP(S) `GET` of the URL you typed, when you tap *Import*.
+- The EasyTier core is a VPN: it talks to the peers you configure. In addition, to detect the NAT type and its public
+  address (needed for NAT traversal / hole punching) it contacts **public STUN servers** by default, which see your public
+  IP address and the UDP/TCP port used:
+
+  | Kind | Default servers (EasyTier-Core `81487c3`, `easytier-core/src/config/mod.rs`) |
+  |---|---|
+  | UDP | `stun.easytier.cn` (a DNS `TXT` lookup that returns a server list), `stun.miwifi.com`, `stun.chat.bilibili.com`, `stun.hitv.com` |
+  | UDP, IPv6 | `stun-v6.easytier.cn` (DNS `TXT` lookup) |
+  | TCP | `stun.hot-chilli.net`, `stun.fitauto.ru`, `fwa.lifesizecloud.com`, `global.turn.twilio.com`, `turn.cloudflare.com`, `stun.voip.blackberry.com`, `stun.radiojar.com` |
+
+  You can supply your own servers in a profile (*Editor → STUN & Whitelists*); a non-empty list replaces the defaults.
+  An optional build-time patch that removes the defaults entirely is described in [patches/README.md](patches/README.md)
+  (it degrades NAT traversal).
+- If you configure peers with `http(s)://`, `txt://` or `srv://` URIs, the core queries those hosts to discover endpoints.
+- The core may also use UPnP/NAT-PMP on your local gateway (can be turned off with *Disable UPnP*).
+- Profiles, including network secrets, are stored only in the app's private storage on the device.
+
+## Project layout
 
 ```
 app/src/main/java/cc/ptoe/easytier/compose/
-├── MainActivity.kt              # 单 Activity，手动注入
-├── core/                        # JNI 门面 + 运行时编排器 + 配置生成
-│   ├── EasyTierJni.kt
-│   ├── EasyTierRuntimeCoordinator.kt
-│   └── ProfileConfig.kt
-├── data/                        # 模型 + DataStore 持久化
-│   ├── EasyTierModels.kt        # EasyTierProfile / GlobalSettings / RuntimePeer ...
-│   └── ProfileRepository.kt     # ProfileRepository + GlobalSettingsRepository
-├── transport/                   # TUN 抽象 + 两种实现
-│   ├── RuntimeTransport.kt
-│   ├── vpn/                     # VpnService 实现（免 root）
-│   └── root/                    # libsu RootService 实现（root）
-└── ui/                          # Compose UI + ViewModel + Theme
-    ├── EasyTierApp.kt           # Dashboard / Profiles / Peers / Settings / Editor
-    ├── EasyTierViewModel.kt
-    └── theme/
+├── MainActivity.kt              # single activity, manual dependency injection
+├── core/                        # JNI facade + runtime coordinator + config generation
+├── data/                        # models + DataStore persistence
+├── transport/                   # TUN abstraction and the two implementations (vpn/, root/)
+└── ui/                          # Compose UI, ViewModel, theme
+buildSrc/                        # Gradle task that builds the Rust core (cargo-ndk)
+EasyTier-Core/                   # git submodule: https://github.com/EasyTier/EasyTier
+patches/                         # optional patches applied to the core at build time
 ```
 
-### 双 TUN 模式对比
+Development conventions and architecture notes for contributors and AI agents: [AGENTS.md](AGENTS.md).
 
-| 维度 | VPN_SERVICE | ROOT_TUN |
-|---|---|---|
-| 实现 | `VpnService.Builder` | `/dev/net/tun` + netlink |
-| 权限 | 系统 VPN 授权弹窗 | root（libsu RootService IPC） |
-| 前台服务 | `specialUse` | 否（root 进程内运行） |
-| Magic DNS | 支持（`100.100.100.101`） | 支持（root 进程内运行 + `settings put global dns1` 切换系统 DNS） |
-| 设备名 | Android VPN（虚拟） | `easytier0`（真实接口） |
+## License
 
-详见 [AGENTS.md](AGENTS.md) 中的"两种 TUN 模式"章节。
-
-## 快速开始
-
-### 1. 克隆仓库（含 submodule）
-
-```bash
-git clone --recurse-submodules <repo-url>
-cd EasyTierCompose
-
-# 若已克隆但未拉取 submodule
-git submodule update --init --recursive
-```
-
-### 2. 构建与安装
-
-```bash
-# Debug 构建 + 安装到已连接设备
-./gradlew :app:installDebug
-
-# Release APK
-./gradlew :app:assembleRelease
-```
-
-首次构建时，Gradle 会通过 [foojay-resolver](https://github.com/gradle/foojay-resolver) 自动下载 JDK 21 用于 Daemon。
-
-### 3. 运行单元测试
-
-```bash
-./gradlew :app:testDebugUnitTest
-```
-
-测试覆盖 `TomlConfigBuilder`（结构化 TOML、port forward / VPN portal / secure mode / 全 flags 字段、`rootTunSpec`）、`ProfileValidator`（CIDR / MTU / peers / proxy networks / port forwards / VPN portal / SOCKS5 端口 / bps 限制等校验）与 GlobalSettings 覆盖，通过 `NativeConfigParser` 桩绕过真实 JNI。
-
-## 原生库说明
-
-本项目包含两个原生库，来源与构建方式不同：
-
-| 库 | 来源 | 构建方式 |
-|---|---|---|
-| `libroot_tun_jni.so` | `app/src/main/cpp/root_tun_jni.cpp` | Gradle `externalNativeBuild`（CMake）自动编译 |
-| `libeasytier_android_jni.so` | `EasyTier-Core/easytier-contrib/easytier-android-jni/` | 预构建，已置于 `app/src/main/jniLibs/<abi>/` |
-
-如需重新构建 `libeasytier_android_jni.so`（需要 Rust + Android NDK）：
-
-```bash
-cd EasyTier-Core/easytier-contrib/easytier-android-jni
-./build.sh
-# 将 target/android/<abi>/libeasytier_android_jni.so 拷贝到
-# app/src/main/jniLibs/<abi>/
-```
-
-**不要将 `libeasytier_android_jni.so` 纳入 Gradle 构建。**
-
-## 权限说明
-
-`AndroidManifest.xml` 声明以下权限：
-
-- `INTERNET` — 网络通信
-- `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` — VPN 前台服务
-- `POST_NOTIFICATIONS` — VPN 状态通知
-- `BIND_VPN_SERVICE`（服务级）— 仅系统可绑定 `EasyTierVpnService`
-
-VPN 前台服务的 `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` 标注为 `EasyTier virtual network transport`。
-
-## 开发指引
-
-- **JNI 调用**：只使用 `cc.ptoe.easytier.compose.core.EasyTierJni`，禁止直接调用 `com.easytier.jni.EasyTierJNI`
-- **不自动连接**：`MainActivity.onResume()` 有意留空，连接必须由用户显式触发
-- **运行中不可编辑/删除/切换模式**：profile 处于 `STARTING`/`RUNNING` 状态时，编辑、删除、切换 TUN 模式均被拒绝；Reset 会先停止运行时再清空
-- **GlobalSettings**：TUN 设备名 / `no_tun` / SOCKS5 选项独立持久化，所有 profile 共享；`ProfileValidator.validate` 与 `TomlConfigBuilder.build` 均需显式传入
-- **Hostname 自动补全**：profile 留空时协调器从 Android 设备名补全（与 EasyTier Core `get_hostname` 一致）
-- **netlink 路由**：TUN 远端网络路由必须使用 `RT_SCOPE_UNIVERSE`，否则对任意 CIDR 返回 `EINVAL`
-- **IPv4 解析**：EasyTier 序列化的 `addr` 是 `u32::from_be_bytes` 的 big-endian 整数，需按大端拆解
-
-完整开发约定见 [AGENTS.md](AGENTS.md)。
-
-## 技术栈
-
-- **Kotlin** 2.2.10 + Coroutines 1.10.2 + Serialization 1.9.0
-- **Jetpack Compose** BOM 2026.02.01 + Material 3 + Material Icons Extended
-- **AndroidX** Activity Compose 1.13.0 / Lifecycle 2.11.0 / DataStore 1.2.1 / Core KTX 1.19.0
-- **libsu** 6.0.0（root IPC + RootService）
-- **CMake** 3.22.1 + C++20（root TUN JNI）
-
-## 许可证
-
-本项目基于 [GNU General Public License v3](LICENSE) 发布。
+This project is released under the [GNU General Public License v3](LICENSE).
 
 ```
 EasyTier Compose
@@ -197,14 +202,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ```
 
-### 上游许可
+The bundled EasyTier core (`EasyTier-Core/` submodule, from <https://github.com/EasyTier/EasyTier>) is licensed under
+[LGPL-3.0](EasyTier-Core/LICENSE); redistributing or modifying code inside that submodule must follow the LGPL-3.0 terms.
 
-封装的 EasyTier 核心（`EasyTier-Core/` submodule，来自 https://github.com/ECSDevs/EasyTier）采用 [LGPLv3](EasyTier-Core/LICENSE)。重新分发或修改该 submodule 内的代码须遵循 LGPLv3 条款。
+## Credits
 
-## 相关链接
-
-- [EasyTier 上游项目](https://github.com/ECSDevs/EasyTier)
-- [EasyTier 官方文档](https://easytier.cn/en/)
-- [EasyTier Web 控制台](https://easytier.cn/web)
-- [Jetpack Compose 文档](https://developer.android.com/jetpack/compose)
-- [libsu 项目](https://github.com/topjohnwu/libsu)
+- [EasyTier](https://github.com/EasyTier/EasyTier) — the decentralized VPN core this app wraps
+- [libsu](https://github.com/topjohnwu/libsu) by topjohnwu — root shell and `RootService` IPC (Apache-2.0)

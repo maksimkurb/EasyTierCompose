@@ -1,0 +1,140 @@
+name: F-Droid repository
+
+# After a successful Release (or manually): add the release APKs to a self-hosted F-Droid repository,
+# sign the index with the repo key and publish it to the gh-pages branch (GitHub Pages, "Deploy from a
+# branch" -> gh-pages / root). Required secrets (see docs/RELEASING.md):
+#   FDROID_KEYSTORE_BASE64, FDROID_KEYSTORE_PASS, FDROID_KEY_PASS
+# The repo key is NOT the APK signing key.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag whose APKs to add (empty = latest GitHub release)
+        required: false
+        type: string
+      keep:
+        description: Number of most recent versions to keep in the repository
+        required: false
+        default: '5'
+        type: string
+
+# Serialize publishers: the repo state is read from and written back to gh-pages.
+concurrency:
+  group: fdroid-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write # push the gh-pages branch
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FDROID_VERSION: '2.4.5'
+    steps:
+      - name: Checkout (metadata, icon, screenshots)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          RUN_TAG: ${{ github.event.workflow_run.head_branch }}
+          INPUT_KEEP: ${{ inputs.keep }}
+        run: |
+          tag="${INPUT_TAG:-$RUN_TAG}"
+          if [ -z "$tag" ]; then
+            tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          fi
+          [ -n "$tag" ] || { echo "::error::no release found"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "keep=${INPUT_KEEP:-5}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release APKs
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir apks
+          ls -l apks
+
+      - name: Check for existing gh-pages branch
+        id: pages
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/branches/gh-pages" --silent 2> /dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Previous repo state (older APKs are re-used from here).
+      - name: Checkout gh-pages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.pages.outputs.exists == 'true' && 'gh-pages' || github.event.repository.default_branch }}
+          path: pages
+          fetch-depth: 1
+
+      - name: Start from an empty tree on first publish
+        if: steps.pages.outputs.exists != 'true'
+        run: |
+          git -C pages rm -rf -q .
+          git -C pages clean -fdxq
+
+      - name: Install fdroidserver
+        run: |
+          python3 -m venv "$RUNNER_TEMP/fdroid-venv"
+          "$RUNNER_TEMP/fdroid-venv/bin/pip" install --quiet "fdroidserver==$FDROID_VERSION"
+          echo "$RUNNER_TEMP/fdroid-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Build and sign the repository
+        env:
+          FDROID_KEYSTORE_BASE64: ${{ secrets.FDROID_KEYSTORE_BASE64 }}
+          FDROID_KEY_STORE_PASS: ${{ secrets.FDROID_KEYSTORE_PASS }}
+          FDROID_KEY_PASS: ${{ secrets.FDROID_KEY_PASS }}
+          KEEP: ${{ steps.tag.outputs.keep }}
+        run: |
+          [ -n "$FDROID_KEYSTORE_BASE64" ] || { echo "::error::Secret FDROID_KEYSTORE_BASE64 is not set (see docs/RELEASING.md)"; exit 1; }
+          fdroid/build-repo.sh --apks apks --pages pages --keep "$KEEP"
+
+      - name: Publish to gh-pages
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          cd pages
+          # A single orphan commit per publish keeps the branch small: the repo state lives in the
+          # tree (read back on the next run), not in history.
+          git checkout --orphan publish
+          git add -A
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -m "Publish F-Droid repository for $TAG"
+          du -sh .
+          git push --force origin publish:gh-pages
+
+      - name: Summary
+        run: |
+          owner="${GITHUB_REPOSITORY%%/*}"; name="${GITHUB_REPOSITORY##*/}"
+          {
+            echo "### F-Droid repository published"
+            echo
+            echo "Release added: \`${{ steps.tag.outputs.tag }}\`"
+            echo
+            cat pages/fdroid/repo-info.md
+            echo
+            echo "Pages must be enabled: Settings -> Pages -> Deploy from a branch -> gh-pages / (root)."
+            echo "Expected URL: https://${owner,,}.github.io/${name}/fdroid/repo"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat pages/fdroid/repo-info.md

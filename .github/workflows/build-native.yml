@@ -1,0 +1,156 @@
+name: Build native
+
+# Builds libeasytier_android_jni.so (arm64-v8a, armeabi-v7a, x86_64) from the EasyTier-Core
+# submodule with the same Gradle task developers use (:app:buildRustJniLibs).
+#
+# Reusable: other workflows call it with `uses: ./.github/workflows/build-native.yml` and then
+# download the `native-jni-libs` artifact, pointing -PrustJniLibsDir at <download dir>/jniLibs.
+# The artifact layout is  jniLibs/<abi>/libeasytier_android_jni.so  plus  BUILD-INFO.txt.
+
+on:
+  workflow_call:
+    outputs:
+      artifact-name:
+        description: Name of the uploaded artifact holding the native libraries
+        value: native-jni-libs
+      cache-key:
+        description: Cache key (core commit + Rust + NDK + build script hash)
+        value: ${{ jobs.build.outputs.cache-key }}
+      cache-hit:
+        description: "'true' when the libraries were restored from cache without compiling"
+        value: ${{ jobs.build.outputs.cache-hit }}
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      cache-key: ${{ steps.meta.outputs.key }}
+      cache-hit: ${{ steps.out-cache.outputs.cache-hit }}
+    steps:
+      - name: Checkout (with EasyTier-Core submodule)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Compute cache key
+        id: meta
+        env:
+          HASH_BUILD_SCRIPT: ${{ hashFiles('buildSrc/build.gradle.kts', 'buildSrc/src/**', 'patches/*.patch') }}
+          HASH_CARGO_LOCK: ${{ hashFiles('EasyTier-Core/Cargo.lock') }}
+        run: |
+          core_commit="$(git rev-parse HEAD:EasyTier-Core)"
+          rust="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' EasyTier-Core/rust-toolchain.toml)"
+          ndk="$(sed -n 's/^ *ndkVersion *= *"\(.*\)"/\1/p' app/build.gradle.kts | tr -d '\r')"
+          [ -n "$core_commit" ] && [ -n "$rust" ] && [ -n "$ndk" ] || { echo "could not determine versions" >&2; exit 1; }
+          {
+            echo "core_commit=$core_commit"
+            echo "rust=$rust"
+            echo "ndk=$ndk"
+            echo "key=native-${core_commit}-rust${rust}-ndk${ndk}-${HASH_BUILD_SCRIPT}"
+            echo "cargo_key=cargo-rust${rust}-ndk${ndk}-${HASH_CARGO_LOCK}"
+            echo "cargo_restore=cargo-rust${rust}-ndk${ndk}-"
+          } >> "$GITHUB_OUTPUT"
+
+      # Final outputs. An exact hit means nothing below needs to run.
+      - name: Restore built libraries
+        id: out-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: native
+          key: ${{ steps.meta.outputs.key }}
+
+      # Cargo registry/git checkouts, the compiled dependency tree and the cargo-ndk binary.
+      - name: Restore Cargo caches
+        if: steps.out-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/cargo-ndk
+            build/rust-target
+          key: ${{ steps.meta.outputs.cargo_key }}
+          restore-keys: ${{ steps.meta.outputs.cargo_restore }}
+
+      - name: Set up JDK 21
+        if: steps.out-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        if: steps.out-cache.outputs.cache-hit != 'true'
+        uses: gradle/actions/setup-gradle@7296c772c13d12d9871528814b51fb2143c138ef # v6.4.1
+        with:
+          cache-read-only: true
+
+      - name: Install Android NDK, CMake and platform
+        if: steps.out-cache.outputs.cache-hit != 'true'
+        env:
+          NDK: ${{ steps.meta.outputs.ndk }}
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | sudo "$sdkmanager" --licenses > /dev/null || true
+          sudo "$sdkmanager" "ndk;$NDK" "cmake;4.1.2" "build-tools;37.0.0" "platforms;android-37.0" > /dev/null
+
+      - name: Install Rust toolchain, Android targets, cargo-ndk, protoc
+        if: steps.out-cache.outputs.cache-hit != 'true'
+        env:
+          RUST: ${{ steps.meta.outputs.rust }}
+        run: |
+          rustup toolchain install "$RUST" --profile minimal \
+            -t aarch64-linux-android -t armv7-linux-androideabi -t x86_64-linux-android
+          command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq protobuf-compiler
+          protoc --version
+
+      - name: Build native libraries
+        if: steps.out-cache.outputs.cache-hit != 'true'
+        run: ./gradlew :app:buildRustJniLibs --console=plain
+
+      - name: Stage build output
+        if: steps.out-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p native
+          cp -r app/build/generated/rustJniLibs native/jniLibs
+          cp app/build/generated/rustJniLibs-BUILD-INFO.txt native/BUILD-INFO.txt
+
+      - name: Verify output
+        run: |
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            f="native/jniLibs/$abi/libeasytier_android_jni.so"
+            [ -s "$f" ] || { echo "missing $f" >&2; exit 1; }
+          done
+          cat native/BUILD-INFO.txt
+          ( cd native && sha256sum jniLibs/*/libeasytier_android_jni.so )
+
+      - name: Upload native libraries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-jni-libs
+          path: native
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Summary
+        env:
+          KEY: ${{ steps.meta.outputs.key }}
+          HIT: ${{ steps.out-cache.outputs.cache-hit }}
+        run: |
+          {
+            echo "### Native libraries"
+            echo "- cache key: \`$KEY\`"
+            echo "- restored from cache (no compilation): \`${HIT:-false}\`"
+            echo '```'
+            cat native/BUILD-INFO.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

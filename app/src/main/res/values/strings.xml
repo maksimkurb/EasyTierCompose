@@ -108,6 +108,8 @@
     <string name="profiles_import_invalid_url">Enter a valid http(s) URL</string>
     <string name="profiles_import_read_failed">Failed to read the configuration</string>
     <string name="profiles_import_too_large">Configuration is too large</string>
+    <string name="profiles_import_missing_identity">Missing [network_identity] section</string>
+    <string name="profiles_import_missing_network_name">network_name is missing in [network_identity]</string>
     <string name="content_export_profile">Export profile as TOML</string>
     <string name="profiles_delete_title">Delete %1$s?</string>
     <string name="profiles_disconnect_before_delete">Disconnect before deleting</string>
@@ -436,6 +438,6 @@
     <string name="vpn_notification_title">EasyTier VPN active</string>
     <string name="vpn_notification_text">EasyTier is routing through Android VPN</string>
     <string name="vpn_notification_channel">EasyTier VPN</string>
-    <string name="fgs_special_use_subtype">EasyTier virtual network transport</string>
+    <string name="fgs_special_use_subtype" translatable="false">EasyTier virtual network transport</string>
     <string name="error_vpn_establish_failed">Failed to establish EasyTier VPN</string>
 </resources>
