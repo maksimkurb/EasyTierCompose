@@ -100,7 +100,7 @@
     <string name="profiles_add_import_link">从链接导入</string>
     <string name="profiles_import_error_title">导入失败</string>
     <string name="profiles_import_url_label">配置 URL</string>
-    <string name="profiles_import_url_hint">https://example.com/config.toml</string>
+    <string name="profiles_import_url_hint">https://example.com/config.toml 或 EasyTier 分享链接</string>
     <string name="profiles_import_fetch">导入</string>
     <string name="profiles_import_loading">正在获取配置…</string>
     <string name="profiles_import_invalid_url">请输入有效的 http(s) URL</string>
@@ -108,6 +108,8 @@
     <string name="profiles_import_too_large">配置文件过大</string>
     <string name="profiles_import_missing_identity">配置中缺少 [network_identity] 部分</string>
     <string name="profiles_import_missing_network_name">[network_identity] 中缺少 network_name</string>
+    <string name="profiles_import_invalid_share_link">EasyTier 分享链接无效或已损坏</string>
+    <string name="profiles_import_web_console_url">无法导入 Web 控制台的配置服务器 URL。请从控制台导出 TOML 配置，或使用分享链接。</string>
     <string name="content_export_profile">将配置文件导出为 TOML</string>
     <string name="profiles_delete_title">删除“%1$s”？</string>
     <string name="profiles_disconnect_before_delete">删除前请先断开连接</string>
@@ -154,6 +156,10 @@
     <string name="settings_reset_message">当前连接将先停止。</string>
 
     <string name="editor_disconnect_before_save">保存此配置文件的更改前请先断开连接。</string>
+    <string name="editor_source_title">从链接导入</string>
+    <string name="editor_source_hint">仅在点击“刷新”时重新读取配置，不会自动获取。</string>
+    <string name="editor_source_refresh">从链接刷新</string>
+    <string name="editor_source_refreshing">正在刷新…</string>
     <string name="editor_general">常规</string>
     <string name="editor_profile_name">配置文件名称</string>
     <string name="editor_hostname">主机名</string>
